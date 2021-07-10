@@ -7,9 +7,9 @@ source /datascope/slurm/miniconda3/bin/activate ae-tf
 export PYTHONPATH=.:../pysynphot:../SciScript-Python/py3
 
 # Where's my PFS 
-export AE_ROOT=/home/swei20/AE
-export AE_DATA=/scratch/ceph/swei20/data/ae
-export AE_TEST=/scratch/ceph/swei20/data/ae/test
+export LV_ROOT=/home/swei20/LV
+# export AE_DATA=/scratch/ceph/swei20/data/ae
+# export AE_TEST=/scratch/ceph/swei20/data/ae/test
 
 
 # Work around issues with saving weights when running on multiple threads
@@ -22,7 +22,7 @@ export TF_CPP_MIN_LOG_LEVEL=2
 export NUMEXPR_MAX_THREADS=32
 
 
-cd $AE_ROOT
+cd $LV_ROOT
 
-echo "Encode! Encode! "
-echo "Data directory is $AE_DATA"
+echo "Leverage! Leverage! "
+# echo "Data directory is $LV_DATA"

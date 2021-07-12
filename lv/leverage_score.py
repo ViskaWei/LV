@@ -12,7 +12,7 @@ class LeverageScore(object):
         self.wv_dim = None
         self.pc_dim = None
         self.pidxs = []
-        self.T = 0.7
+        self.T = 1.0
         self.max_ep = 100
         self.max_pidx_iter = 1
         self.init(wave, eigv, R=5000, wave_lb=wv_lb)
@@ -96,8 +96,11 @@ class LeverageScore(object):
 
     def is_terminate(self, lvrg_sum_i, wvbn_sum_i, S_new):
         if S_new is None: return True
-        _, _, lvrg_sum_j, wvbn_sum_j, gain_j = S_new
-        gain_rate = np.abs((lvrg_sum_i - lvrg_sum_j) / (wvbn_sum_i - wvbn_sum_j))
+        start_idx, end_idx, lvrg_sum_j, wvbn_sum_j, gain_j = S_new
+        print(f"ROI: {self.wave[start_idx]} - {self.wave[end_idx]} | P Sum {lvrg_sum_j:.2} | lambda {wvbn_sum_j:.2} | gain {gain_j:.2}")
+
+        gain_rate = np.abs((lvrg_sum_j - lvrg_sum_i) / (wvbn_sum_j - wvbn_sum_i))
+        print(f"dP: {(lvrg_sum_j - lvrg_sum_i):.2} | dLambda: {(wvbn_sum_j- wvbn_sum_i):.2}")
         upper_bnd = self.T * gain_j
         # upper_bnd = self.T / wvbn_sum_j
 

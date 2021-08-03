@@ -29,12 +29,12 @@ class PCA(object):
         self.vT = None
 
         e = 1e-3
-        self.Ts = [[3500 - e, 5000], [7000, 12000], [12000, 30000]]
+        self.Ts = [[3500 - e, 7000], [7000, 12000], [12000, 30000]]
         self.Fs = [[-2.5 - e, -1.25], [-1.25, 0.], [0., 0.75]]
         self.Ls = [[0 - e, 2], [2, 4], [4, 5.0]]
 
         # self.Ws = [[8000, 13000]]
-        self.Ws = [[8000, 13000]]
+        self.Ws = [[8000, 10000]]
         self.Wcut= Wcut
         self.n_spec = {}
         
@@ -183,25 +183,50 @@ class PCA(object):
         # cmap = sns.cubehelix_palette(8, start=0.5, rot=-.75, as_cmap=True)
 
     def plot_logg(self, ii, p1, p2):
-        sns.set(rc={'figure.figsize':(20, 8)})
+        # sns.set(rc={'figure.figsize':(20, 8)})
         fg=sns.FacetGrid(self.df_vs[ii], col="GG")
         fg.map_dataframe(sns.scatterplot, f"p{p1}", f"p{p2}", hue="Teff", palette=self.cmap, s=5)
-        plt.colorbar(self.cbars[ii])
+        # plt.colorbar(self.cbars[ii])
 
     def plot_loggs(self, p1, p2):
         for ii in range(3):
             self.plot_logg(ii, p1, p2)
 
-    def zoom_eigv(self, ii, pdx, c=None):
+    def zoom_eigv(self, ii, pdx, c=None, ax=None, bnds=[8000, 10000]):
+        ax = ax or  plt.subplots(figsize=(20,5))[1]
         c = c or "k"
-        bnds =[8000, 10000]
         s, e = np.digitize(bnds, self.wave) 
-        plt.figure(figsize=(20,5))
-        plt.plot(self.wave[s:e], self.V[ii][s:e,pdx], c=c, label = "eigv {pdx}")
-        plt.ylabel(f"{self.Tname[ii]} T")
-        plt.legend()
-        plt.xlim(*bnds)
+        ax.plot(self.wave[s:e], self.V[ii][s:e,pdx], c=c, label = f"eigv {pdx}")
+        # ax.set_ylabel(f"{self.Tname[ii]} T")
+        ax.grid(True)
+        ax.set_xlim(*bnds)
             
+
+    def plot_CaH(self, tdx, pdx1, pdx2, bnds=[8275,9700], cal=True):
+        f,axs = plt.subplots(1,2, figsize=(8,2.5), sharey="row", facecolor='w')
+        self.zoom_eigv(tdx,pdx1, ax=axs[0], bnds=bnds, c='b')
+        self.zoom_eigv(tdx,pdx2, ax=axs[1], bnds=bnds, c='r')
+        # axs[0].set_ylabel(f"{self.Tname[tdx]} T")
+        if cal:
+            for ax in axs:
+                self.plot_ca3(ax)
+        else:
+            for ax in axs:
+                ax.axvspan(8205.96, 10000 , color="green", alpha=0.2)
+                # self.plot_paschen(ax)
+    
+
+    def plot_ca3(self, ax):
+        ca3 = [8498, 8542, 8662]
+        width = 4
+        for ca in ca3:
+            ax.axvspan(ca-width, ca+width , label = f"Ca Triplet", color="yellow", alpha=1)
+        self.set_unique_legend(ax)
+
+    def set_unique_legend(self, ax):
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax.legend(by_label.values(), by_label.keys())
     # def plot_ 
     #     plt.figure(figsize=(10,10))
     #     plt.scatter(U[:,0], U[:,1], c=df_para0["Logg"])

@@ -8,13 +8,15 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import TruncatedSVD
 from matplotlib.colors import LogNorm
 import seaborn as sns
+from scipy.spatial.distance import pdist, squareform
+
 import warnings
 warnings.filterwarnings("ignore")
 
 # NORM_PATH = '/scratch/ceph/dobos/data/pfsspec/import/stellar/rbf/bosz_5000_full/norm/spectra.h5'
 
 class PCA(object):
-    def __init__(self, flux=None, mask=None, n_trnc=5, n_pc=5, Wcut=False):
+    def __init__(self, flux, mask, n_trnc=5, n_pc=5, Wcut=False):
         self.flux = flux
         self.mask = mask
         self.X = {}
@@ -47,7 +49,7 @@ class PCA(object):
 
 
         self.init()
-        self.init_plots()
+
 
     def init(self, NORM_PATH=None):
         if NORM_PATH is None:
@@ -59,7 +61,24 @@ class PCA(object):
                 self.flux = f['flux'][()]
                 self.mask = f['flux_idx'][()]
         self.load_para()
+        self.get_cbars()
+
+
+    def run(self):
         self.get_pcs()
+
+    def plot(self):
+        self.init_plots()
+
+
+    def get_L(self, X, s=1):
+        dX = squareform(pdist(X, 'euclidean'))
+        K = np.exp(-dX ** 2 / s ** 2)
+        D = np.sum(K, axis=1)
+        L = K/D
+        return K,D,L
+
+
 
     def get_level(self, para):
         for ii, ts in enumerate(self.Ts):
@@ -67,9 +86,7 @@ class PCA(object):
             df_para["L3"][idx] = self.Tname[ii]
 
     def get_df_vs(self, ii):
-        ts = self.Ts[ii]
-        df_para = self.df_para
-        df_paraT = df_para[(df_para["Teff"] > ts[0])& (df_para["Teff"] <= ts[1])]
+        df_paraT = self.get_para_in_Trange(self.Ts[ii])
         assert len(df_paraT) == self.n_spec[ii]
         df_paraT.index = range(df_paraT.shape[0])
         for jj in range(self.n_eval):
@@ -77,6 +94,11 @@ class PCA(object):
             df_paraT[f'p{jj}'] = U
         self.df_vs[ii] = df_paraT
             
+    def get_para_in_Trange(self, ts):
+        maskT = (self.df_para["Teff"] > ts[0])& (self.df_para["Teff"] <= ts[1])
+        return self.df_para[maskT]
+        
+        
 
     def load_para(self):
         PARA_PATH = "/home/swei20/LV/data/p5T3.csv"
@@ -91,9 +113,9 @@ class PCA(object):
         # self.wvln = len(self.wave)
 
 
-    def get_flux_in_Trange(self, Ts):
-        start = np.digitize(Ts[0], self.vT)
-        end = np.digitize(Ts[1], self.vT)
+    def get_flux_in_Trange(self, ts):
+        start = np.digitize(ts[0], self.vT)
+        end = np.digitize(ts[1], self.vT)
         flux_T = self.flux[:, start:end, ...]
         mask_T = self.mask[:, start:end, ...]
         flux_mat = flux_T[mask_T]
@@ -160,7 +182,6 @@ class PCA(object):
 
 
     def init_plots(self):
-        self.get_cbars()
         step = 0.01 if self.Wcut else 0.0001
         self.plot_eigv(step=step, lb=8000, ub=10000, n_eigv=5)
 

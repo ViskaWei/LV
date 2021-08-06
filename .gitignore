@@ -119,4 +119,4 @@ datasets/
 *logs
 *trained_model
 *.out
-*img
+# *img

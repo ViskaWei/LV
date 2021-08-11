@@ -26,7 +26,8 @@ The selected features should also be stable under noise as certain regions will 
 
 The hierarchical scheme not only reduces the complexity of recovering the embedded structure but also reduces computational cost and hardware requirements for the training. More importantly, the optimal sparsification scheme will increase the signal to noise in the data and improve the performance of inference and learning.
 
-##Feature engineering
+## Feature engineering
+
 Given that most of the pixels are noise and few informative pixels live in a union of subspaces, engineering informative features is tricky.  Currently, we are exploring several approaches to rank the pixels by their importance in parameter inference. That is to measure how sensitive one pixel is to the parameter changes. For example, the presence of the Ca triplet can constrain the temperature parameter to be lower than 5000K.  
 
 Following Elhamifar and Vidal's work on spare subspace clustering, we would first build orthogonal sparse basis for hot stars only, and for cool stars only. We then deproject these subspaces from the data and build a PCA basis on the remaining subspaces to get all other features.

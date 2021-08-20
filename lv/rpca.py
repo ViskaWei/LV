@@ -1,9 +1,11 @@
 import sys
 import time
 import numpy as np
+import h5py
 from tqdm import tqdm
 from numpy.linalg import svd, norm
 from multiprocessing.pool import ThreadPool
+import matplotlib.pyplot as plt
 
 
 class RPCA(object):
@@ -110,7 +112,7 @@ class RPCA(object):
     def pcp(self):
         start = time.time()
         args = self.init_pcp()
-        for ep in range(self.n_iter):
+        for ep in tqdm(range(self.n_iter)):
             args = self.episode(ep, *args)
             if (ep == 0) or (np.mod(ep + 1,10) == 0):
                 print("%4d\t%10.4f\t%10.4f\t%10.4f\t%10.4f\t%10.2f" %(ep + 1,
@@ -119,6 +121,7 @@ class RPCA(object):
             if self.stop(ep):
                 break
         self.h["t"] = time.time() - start
+        print(f"t: {self.h['t']:.2f}")
         self.h["ep"] = ep
         self.R = args[0]
         self.S = args[1]
@@ -144,6 +147,23 @@ class RPCA(object):
         L = async_L.get()
         return R, S, L
     
+    def eval_pcp(self, wave, roff=3000, soff=2000):
+        res = self.R + self.S + self.L - self.X
+        plt.plot(wave, -res.sum(0)-roff, label=f"Res - {roff}", c='g')
+        plt.plot(wave, -self.L.sum(0), label = "LowRank", c='skyblue')
+        plt.plot(wave, -self.S.sum(0)-soff, label=f"Sparse - {soff}", c='r')
+        plt.xlabel("wave")
+        plt.ylabel("norm flux")
+        plt.title(f"Spec {self.m}  @ LowT 3500 -6500K")
+        plt.legend()
+
+    def save(self, PATH):
+        print("=================SAVINHG==================")
+        with h5py.File(PATH, 'w') as f:
+            f.create_dataset('R', data = self.R)
+            f.create_dataset('S', data = self.S)
+            f.create_dataset('L', data = self.L)
+
     # @staticmethod
     # def update_R(x, b, la):
     #     return (1.0 / (1.0 + la)) * (x - b)

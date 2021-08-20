@@ -79,7 +79,6 @@ class PCA(object):
         return K,D,L
 
 
-
     def get_level(self, para):
         for ii, ts in enumerate(self.Ts):
             idx = df_para[(df_para[para] > ts[0])& (df_para[para] <= ts[1])].index

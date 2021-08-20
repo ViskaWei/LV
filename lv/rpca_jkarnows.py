@@ -127,7 +127,7 @@ def rpcaADMM(data):
         return pm(x - b, l*g, pl)
 
     def update(func,item):
-        return map(func,[item])[0]
+        return list(map(func,[item]))[0]
 
     for k in range(MAX_ITER):
 
@@ -150,6 +150,7 @@ def rpcaADMM(data):
         # (for termination checks only)
         x = hstack([X_1,X_2,X_3])
         zold = z
+
         z = x + tile(-avg(X_1, X_2, X_3) + A*1.0/N, (1, N))
 
         # u-update

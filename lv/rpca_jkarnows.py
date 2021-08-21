@@ -69,7 +69,7 @@ def objective(X_1, g_2, X_2, g_3, X_3):
     return norm(X_1,'fro')**2 + g_2*norm(hstack(X_2),1) + g_3*norm(tmp,1)
 
 
-def rpcaADMM(data):
+def rpcaADMM(data, n_iter=100):
     """
     ADMM implementation of matrix decomposition. In this case, RPCA.
 
@@ -89,7 +89,7 @@ def rpcaADMM(data):
     g2 = 0.15*g2_max
     g3 = 0.15*g3_max
 
-    MAX_ITER = 100
+    MAX_ITER = n_iter
     ABSTOL   = 1e-4
     RELTOL   = 1e-2
 
@@ -173,7 +173,9 @@ def rpcaADMM(data):
         if (h['r_norm'][k] < h['eps_pri'][k]) and (h['s_norm'][k] < h['eps_dual'][k]):
             break
 
-    h['addm_toc'] = time.time() - start
+    h['admm_toc'] = time.time() - start
+    print(f"t: {h['addm_toc']:.2f}")
+    
     h['admm_iter'] = k
     h['X1_admm'] = X_1
     h['X2_admm'] = X_2

@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 
 
 class RPCA(object):
-    def __init__(self, data, la=1.0,  n_iter=100, ratio=0.15, parallel=0):
-        self.X = data
+    def __init__(self, flux, wave, la=10.0,  n_iter=100, ratio=0.15, parallel=0):
+        self.X = flux
+        self.W = wave
         self.m, self.n = self.X.shape
         self.la = la
         self.n_iter = n_iter
@@ -23,14 +24,21 @@ class RPCA(object):
         self.R = None
         self.S = None
         self.L = None
+        self.SSum = None
+        self.SMax = None
+        self.SClp = None
+        self.clip = 0.2
+        self.Snum = None
 
-        self.init(data, ratio, parallel)
+        self.init(flux, ratio, parallel)
 
-    def init(self, data, ratio, parallel):
-        gs_max = np.abs(data).max()
-        gl_max = norm(data, ord=2)
+    def init(self, flux, ratio, parallel):
+        print("=====Initializing RPCA ======")
+        gs_max = 1.14 # precompute np.abs(flux).max() 9.816 for all
+        gl_max = 91.0 # precompute norm(flux, ord=2)
         self.gs = ratio * gs_max
         self.gl = ratio * gl_max
+        # self.gl = 6
 
         abs_tol   = 1e-4 * np.sqrt(self.m * self.n * self.N)
         rel_tol   = 1e-2
@@ -65,7 +73,15 @@ class RPCA(object):
         return (R - B) / (1.0 + self.la)
 
     def update_S(self, S, B=None):
+        self.get_S_ratio(S)
         return RPCA.prox_l1 (S - B, self.la * self.gs)
+
+    def get_S_ratio(self, S):
+        SSum = np.sum(np.abs(S),  axis=0)
+        SMax = np.max(SSum)
+        Snum = np.where(SSum  >  self.clip * SMax)[0].shape
+        print(f"S_{Snum[0]}", end=" ")
+
 
     def update_L(self, L, B=None):
         return self.prox_mat(L - B, self.la * self.gl)
@@ -73,6 +89,8 @@ class RPCA(object):
     def prox_mat(self, mat, r):
         u, s, v = svd(mat, full_matrices=False)
         prox_s = np.maximum(s - r, 0.0) 
+        self.LRk = np.where(prox_s > 0.0)[0].shape[0]
+        print(f"L_{self.LRk}", end="") 
         return (u * prox_s).dot(v)
         # prox_s = RPCA.prox_l1(s, cutoff)
         # if self.m >= self.n:
@@ -104,6 +122,7 @@ class RPCA(object):
         return R, S, L, U, new_z
 
     def stop(self, ep):
+        if self.LRk <=2: return True
         small_res = (self.h['res'][ep] < self.h['eps_r'][ep])
         small_dz  = (self.h['dz'][ep] < self.h['eps_U'][ep])
         return small_res and small_dz
@@ -112,9 +131,12 @@ class RPCA(object):
     def pcp(self):
         start = time.time()
         args = self.init_pcp()
-        for ep in tqdm(range(self.n_iter)):
+        print("\n=====Starting RPCA=====")
+        for ep in range(self.n_iter):
+            print(f"|EP{ep+1}_", end="")
             args = self.episode(ep, *args)
             if (ep == 0) or (np.mod(ep + 1,10) == 0):
+                print("\n")
                 print("%4d\t%10.4f\t%10.4f\t%10.4f\t%10.4f\t%10.2f" %(ep + 1,
                         self.h['res'][ep], self.h['eps_r'][ep], self.h['dz'][ep], 
                         self.h['eps_U'][ep], self.h['loss'][ep]))
@@ -127,6 +149,13 @@ class RPCA(object):
         self.S = args[1]
         self.L = args[2]
 
+    def finish(self):
+        self.pool.close()
+
+        self.SSum = np.mean(np.abs(self.S), axis=0)
+        self.SMax = np.max(self.SSum)
+        self.SClp = np.clip(self.SSum, self.SMax * self.clp, self.SMax)
+
     def update_RSLU(self, R, S, L, U):
         B = (R + S + L - self.X) / 3.0 + U
         if self.pool is not None:
@@ -138,20 +167,23 @@ class RPCA(object):
         return R, S, L, B
 
     def update_RSL_parallel(self, R, S, L, B, pool): 
-        async_R = pool.apply_async(lambda x: update_R(x, B), R)
-        async_S = pool.apply_async(lambda x: update_S(x, B), S)
-        async_L = pool.apply_async(lambda x: update_L(x, B), L)
+        async_R = pool.apply_async(lambda x: self.update_R(x, B), [R])
+        async_S = pool.apply_async(lambda x: self.update_S(x, B), [S])
+        async_L = pool.apply_async(lambda x: self.update_L(x, B), [L])
 
         R = async_R.get()
         S = async_S.get()
         L = async_L.get()
         return R, S, L
     
-    def eval_pcp(self, wave, roff=3000, soff=2000):
+    def plot_S(self):
+        plt.plot(self.wave, np.mean(np.abs(self.S), axis=0), c="r")
+
+    def eval_pcp(self, roff=3000, soff=2000):
         res = self.R + self.S + self.L - self.X
-        plt.plot(wave, -res.sum(0)-roff, label=f"Res - {roff}", c='g')
-        plt.plot(wave, -self.L.sum(0), label = "LowRank", c='skyblue')
-        plt.plot(wave, -self.S.sum(0)-soff, label=f"Sparse - {soff}", c='r')
+        plt.plot(self.wave, -res.sum(0)-roff, label=f"Res - {roff}", c='g')
+        plt.plot(self.wave, abs(self.L).sum(0), label = "LowRank", c='skyblue')
+        plt.plot(self.wave, self.S.sum(0)-soff, label=f"Sparse - {soff}", c='r')
         plt.xlabel("wave")
         plt.ylabel("norm flux")
         plt.title(f"Spec {self.m}  @ LowT 3500 -6500K")

@@ -11,62 +11,85 @@ import matplotlib.pyplot as plt
 
 
 class RPCA(object):
-    def __init__(self, la=10.0, tsvd=50, ep=100, ratio=0.15):
+    def __init__(self):
         ################################ Flux Wave ###############################
         self.Ws = {"B": [3800, 6000], "R": [6000, 9200],
                    "L": [3800, 8000], "H": [8000, 13000],
                    "T": [8200, 9500], "F": [3800, 13000]}
-        self.Ts = {"L": [4000, 6500], "H": [7000, 30000],
+        self.Ts = {"L": [4000, 6500], "H": [6500, 30000],
                    "T": [8000, 9000], "F": [4000, 30000]}
         self.flux = None
         self.wave = None
         self.mean = None
+        self.center = False
+        self.prod = None 
         self.nf = None
         self.nw = None
         ################################ RPCA ###############################
-        self.Gs = {"HH0": 1.16, "HL": 1.14, "LH": 1.14, "LL": 1.14, "TT0": [1.5,200]} 
-                # if T=="H":
+        self.N = 3
+        self.Gs = {"HH1": [1.35, 265.2], 
+                    # "HH1": [254.8, 265.2], 
+                    
+                    "HL": 1.14, 
+                
+                   "LL0": [9.29, 6251.4], 
+                   "LL1": [5977.7, 1415.1],
+                #    "LL0": [7169.7, 6251.4], 
+                    "LH": 1.14, "LL": 1.14, "TT0": [1.5,200]} 
+        self.GCs = {"LL0": [5805.7, 4005.1], "HH1": [185.9, 115.0] }
+        self.g = ""
         #     gs_max = 1.14 # precompute np.abs(flux).max() 9.816 for all
         #     gl_max = 91.0 # precompute norm(flux, ord=2)
         # else:
         #     gs_max = 7.8
         #     gl_max = 3175.0
-        self.N = 3
-        self.ratio = ratio
-        self.la = la
-        self.tsvd = tsvd
-        self.epoch = ep
-        self.L_eigs = None
-        self.L_rk = None
-        self.S_l1 = None
-        self.tol = None
         self.gs = None
         self.gl = None
-        self.pool = None
+        self.rate = None
+
+        self.la = None
+        self.tol = None
         self.rho = None
+
+        self.svd_tr = None
+        self.epoch = None
+        self.pool = None        
+
         self.R = None
-        self.S = None
+        
         self.L = None
+        self.L_eigs = None
+        self.L_rk = None
+
+        self.S = None
+        self.S_l1 = None
         self.SSum = None
         self.SMax = None
         self.SClp = None
-        self.clp = 0.2
         self.Snum = None
+        self.clp = 0.2
 
-
-
-        self.init_pcp()
+    
 ################################ Flux Wave #####################################
-    def prepare_data(self, flux, wave, para, T, W, fix_C0=True):
-        self.flux, self.mean, self.wave = self.init_flux_wave(flux, wave, para, T, W, fix_CO=fix_CO)
+    def prepare_data(self, flux, wave, T, W, fix_CO=True, para=None, cleaned=False, center=True):
+        if cleaned: 
+            self.flux, self.mean, self.wave = flux, None, wave
+        else:
+            self.center = center
+            self.flux, self.mean, self.wave = self.init_flux_wave(flux, wave, para, T, W, fix_CO=fix_CO)
         self.nf, self.nw = self.flux.shape
-        print(f"centered flux: {self.nf}, wave: {self.nw}")
+        # self.mu = 0.25 * self.nf * self.nw 
+        self.g = T + W + str(int(fix_CO))
+        print(f"center {self.center} {self.g} flux: {self.nf}, wave: {self.nw}")
 
     def init_flux_wave(self, flux, wave, para, T, W, fix_CO):
         flux, wave = self.get_flux_in_Wrange(flux, wave, self.Ws[W])
         flux       = self.get_flux_in_Prange(flux, para, self.Ts[T], fix_CO=fix_CO)
-        mean = flux.mean(0)
-        return flux - mean, mean, wave
+        if self.center:
+            mean = flux.mean(0)
+            return flux - mean, mean, wave
+        else:
+            return flux, None, wave
 
     def init_para(self, para):
         return pd.DataFrame(data=para, columns=["F","T","L","C","O"])
@@ -83,35 +106,51 @@ class RPCA(object):
             print(f"CO==0: {dfpara.size}")
         self.dfpara = dfpara[(dfpara["T"] >= Ts[0]) & (dfpara["T"] <= Ts[1])]
         return flux[self.dfpara.index]
-################################ RPCA #####################################
-    def prepare_model(self, T, W):
-        pass
 
-    def init_rpca(self, T, W, prll):
-        print("=====Initializing RPCA ======")
-        G = T + W + str(int(fix_CO))
-        gs_max = self.Gs[G][0]
-        gl_max = self.Gs[G][1]
+    def get_flux_stats(self, flux=None):
+        flux = flux or self.flux
+        # return np.max(np.sum(np.abs(self.flux), axis=1)), np.sum(self.flux**2)**0.5
+        return np.max(np.abs(self.flux)), np.sum(self.flux**2)**0.5
 
-        self.gs = self.ratio * gs_max
-        self.gl = self.ratio * gl_max
+
+################################ Model #####################################
+    def prepare_model(self, la=10.0, svd_tr=50, ep=100, rate=0.15, prll=0):
+        self.svd_tr = svd_tr
+        self.epoch = ep 
+        self.init_model_params(la, rate)
+        self.tol = self.init_tolerance()
+        print(f"lambda {self.la} | rate {self.rate} | gs {self.gs:.3f} | gl {self.gl:.2f} | ep {self.epoch} | svd {self.svd_tr}")
+
+        if prll: 
+            self.pool = ThreadPool(processes=self.N) # Create thread pool for asynchronous processing
+
+    def init_model_params(self, la, rate):
+        self.la = la
+        self.rate = rate
+        if self.center:
+            self.gs = self.rate * self.GCs[self.g][0]
+            self.gl = self.rate * self.GCs[self.g][1]
+        else:
+            self.gs = self.rate * self.Gs[self.g][0]
+            self.gl = self.rate * self.Gs[self.g][1]
         # self.gl = 6
-
-        abs_tol   = 1e-4 * np.sqrt(self.m * self.n * self.N)
-        rel_tol   = 1e-2
-        rel_tol_N = 1e-2 * np.sqrt(self.N)
-        self.tol  = [abs_tol, rel_tol, rel_tol_N]
         self.rho = 1.0 / self.la
 
-        if prll: self.pool = ThreadPool(processes=self.N) # Create thread pool for asynchronous processing
+    def init_tolerance(self):
+        abs_tol   = 1e-4 * np.sqrt(self.nf * self.nw * self.N)
+        rel_tol   = 1e-2
+        rel_tol_N = 1e-2 * np.sqrt(self.N)
+        svd_tol   = 1e-3
+        return [abs_tol, rel_tol, rel_tol_N, svd_tol]
 
+################################ RPCA #####################################
 
     def init_pcp(self):
-        R = np.zeros((self.m, self.n))    #Residual
-        S = np.zeros((self.m, self.n))    #Sparse components
-        L = np.zeros((self.m, self.n))    #Low rank components
-        U = np.zeros((self.m, self.n))
-        z = np.zeros((self.m, self.n * self.N))
+        R = np.zeros((self.nf, self.nw))    #Residual
+        S = np.zeros((self.nf, self.nw))    #Sparse components
+        L = np.zeros((self.nf, self.nw))    #Low rank components
+        U = np.zeros((self.nf, self.nw))
+        z = np.zeros((self.nf, self.nw * self.N))
         print("\n%3s\t%10s\t%10s\t%10s\t%10s\t%10s" %('iter', 'res', 'eps r', 
                                                   'dz', 'eps U', 'loss'))
 
@@ -124,48 +163,15 @@ class RPCA(object):
         self.h = h
         return R, S, L, U, z
 
-
-    def update_R(self, R, B=None):
-        return (R - B) / (1.0 + self.la)
-
-    def update_S(self, S, B=None):
-        self.get_S_ratio(S)
-        return RPCA.prox_l1 (S - B, self.la * self.gs)
-
-    def get_S_ratio(self, S, out=0):
-        SSum = np.sum(np.abs(S),  axis=0)
-        self.S_l1 = np.sum(SSum)
-        SMaxs =SSum[SSum  >  self.clip * np.max(SSum)]
-        print(f"S_{len(SMaxs)}", end=" ")
-        if out: return SSum, SMaxs
-
-
-    def update_L(self, L, B=None):
-        return self.prox_mat(L - B, self.la * self.gl)
-
-    def prox_l1(self, mat, cutoff):
-        # return np.maximum(0, S - cutoff) 
-        clipped = np.maximum(0, mat - cutoff) - np.maximum(0, -mat - cutoff)
-        self.get_S_ratio(clipped)
-        return clipped
-
-    def prox_mat(self, mat, r):
-        u, s, vt = svds(mat, k=40, tol=1e-6)
-        u, s, v = u[:,::-1], s[::-1], vt[::-1, :]
-        # u, s, v = svd(mat, full_matrices=False)
-        prox_s = np.maximum(s - r, 0.0) 
-        self.L_eigs = prox_s[prox_s > 0.0]
-        self.L_rk = len(self.L_eigs)
-        u, s, v = u[:,:self.L_rk], prox_s[:self.L_rk], v[:self.L_rk, :]
-        print(f"L_{self.L_rk}", end="") 
-        return (u * prox_s).dot(v)
-
     def loss(self, R, S, L):
         noise   = norm(R, ord='fro') ** 2    # squared frobenius norm (makes X_i small)
         sparse  = self.gs * self.S_l1 # L1 norm (makes X_i sparse)
         lowrank = self.gl * self.L_eigs.sum() # nuclear norm
         # lowrank = self.gl * norm(L, ord="nuc")         # nuclear norm (makes X_i low rank)
+        # print(f"loss R {noise:.2f} S {sparse:.2f} L {lowrank:.2f}")
         return noise + sparse + lowrank
+
+################################ RUN #####################################
 
 
     def episode(self, ep, *args):
@@ -181,11 +187,15 @@ class RPCA(object):
         self.h['dz'][ep]    = norm(self.rho * (new_z - z), 'fro')
         self.h['eps_r'][ep] = self.tol[0] + self.tol[1] * np.maximum(norm(RSL, 'fro'), norm(new_z, 'fro'))
         self.h['eps_U'][ep] = self.tol[0] + self.tol[2] * norm(self.rho * U, 'fro')
+        # self.h['res'][ep]   = (3.0 * norm(E, 'fro')**2)**0.5
+        # self.h['dz'][ep]    = norm(self.rho * (new_z - z), 'fro')
+        # self.h['eps_r'][ep] = self.tol[0] + self.tol[1] * np.maximum(norm(RSL, 'fro'), norm(new_z, 'fro'))
+        # self.h['eps_U'][ep] = self.tol[0] + self.tol[2] * norm(self.rho * U, 'fro')
 
         return R, S, L, U, new_z
 
     def stop(self, ep):
-        if self.L_rk <=2: return True
+        if (self.L_rk <=2) : return True
         small_res = (self.h['res'][ep] < self.h['eps_r'][ep])
         small_dz  = (self.h['dz'][ep] < self.h['eps_U'][ep])
         return small_res and small_dz
@@ -193,9 +203,10 @@ class RPCA(object):
     def pcp(self):
         start = time.time()
         args = self.init_pcp()
-        print("\n=====Starting RPCA=====")
+        # print("\n=====Starting RPCA=====")
         for ep in range(self.epoch):
             print(f"|EP{ep+1}_", end="")
+            self.args = args
             args = self.episode(ep, *args)
             if (ep == 0) or (np.mod(ep + 1,10) == 0):
                 print("\n")
@@ -209,16 +220,38 @@ class RPCA(object):
         self.h["ep"] = ep + 1
         self.finish(*args)
 
+################################ Updates #####################################
+    def update_R(self, R, B=None):
+        return (R - B) / (1.0 + self.la)
 
-    def finish(self, *args):
-        self.pool.close()
-        self.R = args[0]
-        self.S = args[1]
-        self.L = args[2]
-        
-        self.SSum = np.mean(np.abs(self.S), axis=0)
-        self.SMax = np.max(self.SSum)
-        self.SClp = np.clip(self.SSum, self.SMax * self.clp, self.SMax)
+    def update_S(self, S, B=None):
+        return self.prox_l1((S - B), (self.la * self.gs))
+
+    def get_sparse_ratio(self, S , out=0):
+        SSum = np.sum(np.abs(S),  axis=0)
+        self.S_l1 = np.sum(SSum)
+        SMaxs =SSum[SSum  >  self.clp * np.max(SSum)]
+        print(f"S_{len(SMaxs)}", end=" ")
+        if out: return SSum, SMaxs
+
+    def update_L(self, L, B=None):
+        return self.prox_mat((L - B), (self.la * self.gl))
+
+    def prox_l1(self, mat, cutoff):
+        clipped = np.maximum(0, mat - cutoff) - np.maximum(0, -mat - cutoff)
+        self.get_sparse_ratio(clipped)
+        return clipped
+
+    def prox_mat(self, mat, cutoff):
+        u, s, vt = svds(mat, k=self.svd_tr, tol=self.tol[3])
+        u, s, v = u[:,::-1], s[::-1], vt[::-1, :]
+        # u, s, v = svd(mat, full_matrices=False)
+        prox_s = np.maximum(s - cutoff, 0.0) 
+        self.L_eigs = prox_s[prox_s > 0.0]
+        self.L_rk = len(self.L_eigs)
+        u, prox_s, v = u[:,:self.L_rk], prox_s[:self.L_rk], v[:self.L_rk, :]
+        print(f"L_{self.L_rk}", end=" ") 
+        return (u * prox_s).dot(v)
 
     def update_RSLU(self, R, S, L, U):
         B = (R + S + L - self.flux) / 3.0 + U
@@ -239,6 +272,19 @@ class RPCA(object):
         S = async_S.get()
         L = async_L.get()
         return R, S, L
+
+
+################################ Finishes #####################################
+
+    def finish(self, *args):
+        self.R = args[0]
+        self.S = args[1]
+        self.L = args[2]
+        
+        self.SSum = np.mean(np.abs(self.S), axis=0)
+        self.SMax = np.max(self.SSum)
+        self.SClp = np.clip(self.SSum, self.SMax * self.clp, self.SMax)
+
     
     def plot_S(self, ax=None):
         if ax is None: ax = plt.gca()
@@ -251,7 +297,7 @@ class RPCA(object):
         plt.plot(self.wave, self.S.sum(0)-soff, label=f"Sparse - {soff}", c='r')
         plt.xlabel("wave")
         plt.ylabel("norm flux")
-        plt.title(f"Spec {self.m}  @ LowT 3500 -6500K")
+        plt.title(f"Spec {self.nf}  @ LowT 3500 -6500K")
         plt.legend()
 
     def save(self, PATH):
@@ -260,20 +306,6 @@ class RPCA(object):
             f.create_dataset('R', data = self.R)
             f.create_dataset('S', data = self.S)
             f.create_dataset('L', data = self.L)
-
-    # @staticmethod
-    # def update_R(x, b, la):
-    #     return (1.0 / (1.0 + la)) * (x - b)
-    # @staticmethod
-    # def update_S(x, b, l, g, pl):
-    #     return pl(x - b, l * g)
-    # @staticmethod
-    # def update_L(x, b, l, g, pl, pm):
-    #     return pm(x - b, l * g, pl)
-    # @staticmethod
-    # def update_RSL(func, item):
-    #     return map(func, [item])[0]
-
  
     @staticmethod
     def avg(*args):

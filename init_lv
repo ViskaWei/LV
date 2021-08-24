@@ -8,6 +8,8 @@ export PYTHONPATH=.:../pysynphot:../SciScript-Python/py3
 
 # Where's my PFS 
 export LV_ROOT=/home/swei20/LV
+export LV_DATA=/home/swei20/LV/data
+
 # export AE_DATA=/scratch/ceph/swei20/data/ae
 # export AE_TEST=/scratch/ceph/swei20/data/ae/test
 

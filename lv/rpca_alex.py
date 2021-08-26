@@ -17,11 +17,14 @@ class RPCA(object):
         self.flux = None
         self.wave = None
         self.mean = None
+        self.size = None
         self.center = False
         self.prod = None 
         self.nf = None
         self.nw = None
         ################################ RPCA ###############################
+        self.X = None
+        self.Xmean = None
         self.N = 3
         self.Gs = {"HH0": [1.5, 260.,  1200.], 
                    "HH1": [1.4, 260.,  270.], 
@@ -67,16 +70,20 @@ class RPCA(object):
         self.SClp = None
         self.Snum = None
         self.clp = 0.2
+        self.norm = None
+
+        self.cmap="YlGnBu"
 
     
 ################################ Flux Wave #####################################
     def prepare_data(self, flux, wave, T, W, fix_CO=True, para=None, cleaned=False, center=True, save=False):
         if cleaned: 
-            self.flux, self.mean, self.wave = flux, None, wave
+            self.flux, self.mean, self.wave = flux, flux.mean(), wave
         else:
             self.center = center
             self.flux, self.mean, self.wave = self.init_flux_wave(flux, wave, para, T, W, fix_CO=fix_CO)
-        self.nf, self.nw = self.flux.shape
+        self.size = self.flux.shape
+        self.nf, self.nw = self.size
         # self.mu = 0.25 * self.nf * self.nw 
         self.g = T + W + str(int(fix_CO))
         print(f"center {self.center} {self.g} flux: {self.nf}, wave: {self.nw}")
@@ -89,7 +96,7 @@ class RPCA(object):
             mean = flux.mean(0)
             return flux - mean, mean, wave
         else:
-            return flux, None, wave
+            return flux, flux.mean(), wave
 
     def init_para(self, para):
         return pd.DataFrame(data=para, columns=["F","T","L","C","O"])
@@ -120,7 +127,10 @@ class RPCA(object):
             self.Gs[self.g] = [l1_inf, l2]
 
 ################################ Model #####################################
-    def prepare_model(self, la=10.0, svd_tr=50, ep=100, rate=0.15, prll=0):
+    def prepare_model(self, X=None, la=10.0, svd_tr=50, ep=100, rate=0.15, prll=0):
+        self.X = np.clip(-self.flux, 0.0, None) if X is None else X
+        self.Xmean = self.mean if X is None else self.X.mean() 
+        self.norm  = np.sum(self.X ** 2)
         self.svd_tr = svd_tr
         self.epoch = ep 
         self.init_model_params(la, rate)
@@ -145,45 +155,88 @@ class RPCA(object):
 ################################ RPCA #####################################
 
     def init_pcp(self):
-        mask = self.init_mask(rank=10, ratio=0.2)
-        S = self.flux[:,  mask]
+        self.isStop= False
+        _, w, v = self._svd(self.X, rank=10)
+        self.gl = w[-1] / 10.0
+        self.mask = self.get_mask(v[:5], ratio=0.1)
+        
+        S = self.get_S_from_mask(self.X, self.mask)
         # L = self.flux[:, ~mask]
-        L = np.zeros((self.nf, self.nw))
+        # L = np.zeros(self.size)
+        # R = np.random.uniform(0.0, self.Xmean, self.shape )
         R = np.zeros((self.nf, self.nw))
-        return S, L, R, mask
+        return R, S
 
-    def init_mask(self, rank=10, ratio=0.2):
-        _, w, v = self._svd(self.flux, rank=rank)
-        vv = np.abs(v[0])
+    def get_S_from_mask(self, X, mask):
+        S = np.zeros(self.size)
+        S[:, mask] = X[:, mask]
+        return S
+    
+    def update_S_from_mask(self, S, add, ):
+        S = np.zeros(self.size)
+        S[:, mask] = self.X[:, mask]
+        return S
+    
+    def update_L_from_mask(self, L):
+        L[:, mask] = 0.0
+        return S
+
+    def get_mask(self, v, ratio=0.1):
+        vv = np.abs(v).sum(0)
         vmax = np.max(vv)
-        mask = (vv > ratio * vmax)
+        cutoff = ratio * vmax
+        self.gs = 0.5 * cutoff
+        mask = (vv > cutoff)
         return mask
 
+    def update(self, R, S):
+        L = self.update_L(self.X - S - R)
+        S = self.update_S(self.X - L - R)
+        loss = self.loss(self.X - L - S)
+        if loss < self.tol:
+            self.isStop = True
+        print(f"{loss:.2e}", end="")
+        return R, S
+
     def update_L(self, L):
-        return self.shrink_mat(L, self.gl)
+        L, vL = self.shrink_mat(L, self.gl)
+        mask = self.get_mask(vL[:1], ratio=0.5)
+        L[:, ~mask] = 0.0
+        self.mask = np.logical_or(mask, self.mask)
+        return L
 
-    def update_mask(self, mask):
+    def update_S(self, S):
+        Svec = np.mean(abs(S), axis=0)
+        prox_S = self.shrink_vec(Svec, self.gs)
+        self.mask = prox_S > 0.0
+        S[:, ~self.mask] = 0.0
+        S[:, self.mask] = self.X[:, self.mask]
+        return S
 
-        self.mask = mask
-        pass
+    def loss(self,R):
+        err = np.sqrt(np.sum(R ** 2) / self.norm)
+        return err
+    # def update_mask(self, S):
 
-    
+    #     self.mask = mask
+    #     pass
 
     def shrink_vec(self, vec, cutoff):
         return np.sign(vec) * np.maximum((np.abs(vec) - cutoff), 0.0)
 
     def shrink_mat(self, mat, cutoff):
         u, w, v = self._svd(mat, self.svd_tr, tol=1e-2)
+        print(w)
         prox_w = np.maximum(w - cutoff, 0.0) 
         self.L_eigs = prox_w[prox_w > 0.0]
-        # print(self.L_eigs[:10])
+        print(self.L_eigs[:10])
         self.L_rk = len(self.L_eigs)
         u, prox_w, v = u[:,:self.L_rk], prox_w[:self.L_rk], v[:self.L_rk, :]
         print(f"L_{self.L_rk}", end=" ") 
-        return (u * prox_w).dot(v)
+        return (u * prox_w).dot(v), v
 
-    def _svd(self, X, rank=40):
-        u, s, v = svds(X, k=rank, tol=1e-2)
+    def _svd(self, X, rank=40, tol=1e-2):
+        u, s, v = svds(X, k=rank, tol=tol)
         return  u[:,::-1], s[::-1], v[::-1, :]
     
 
@@ -203,7 +256,7 @@ class RPCA(object):
         for ep in range(self.epoch):
             print(f"|EP{ep+1}_", end="")
             args = self.episode(ep, *args)
-            if self.stop(ep):
+            if self.isStop:
                 break
         t= time.time() - start
         print(f"t: {t:.2f}")
@@ -211,17 +264,46 @@ class RPCA(object):
         self.finish(*args)
 
     def episode(self, ep, *args):
-        S, L, R, mask = args
-        R, S, L, U = self.update_RSLU(R, S, L, U)
-        RSL = np.hstack((R, S, L))
-        E = (self.flux - R - S - L) / 3.0
-        new_z = RSL + np.tile(E, (1, 3))
-
-        print(f"{loss:.2e}", end="")
-
-        if self.L_rk < self.L_lb:
-            self.h['loss'][ep]  = self.loss(R, S, L)
-
-        return R, S, L, U, new_z
+        
+        R, S = self.update(*args)
+        # RSL = np.hstack((R, S, L))
+        # E = (self.flux - R - S - L) / 3.0
+        # new_z = RSL + np.tile(E, (1, 3))
 
 
+        # if self.L_rk < self.L_lb:
+        #     self.h['loss'][ep]  = self.loss(R, S, L)
+
+        return R, S
+    
+    # def stop(self, ep):
+    #     if 
+
+
+################################ Eval #####################################
+
+    def eval_LSM(self, L, S, mask, vL=None, vS=None):
+        f, axs = plt.subplots(2,2, figsize=(16, 8))
+        self.plot_mat(L, ax=axs[0,0])
+        self.plot_mat(S, ax=axs[1,0])
+        self.plot_eigv(mask, M=L, v=vL, ax=axs[0,1])
+        self.plot_eigv(mask, M=S, v=vS, ax=axs[1,1])
+        axs[0,0].set_ylabel("L")
+        axs[1,0].set_ylabel("S")        
+
+
+
+    def plot_mat(self, mat, ax=None):
+        ax = ax or plt.gca()
+        ax.matshow(mat, aspect="auto", cmap=self.cmap)
+
+    def plot_mask(self, mask, ax=None, ymax=0.3):
+        ax = ax or plt.gca()
+        ax.vlines(self.wave[mask], ymin=0, ymax=ymax, color="r")
+
+    def plot_eigv(self, mask, M=None, v= None,ax=None):
+        ax = ax or plt.gca()
+        if v is None: _,_, v =self._svd(M, rank=5) 
+        for i in range(min(len(v),5)):
+            ax.plot(self.wave, v[i] + 0.3*(i+1))
+        self.plot_mask(mask, ax=ax)

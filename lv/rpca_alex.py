@@ -127,15 +127,19 @@ class RPCA(object):
             self.Gs[self.g] = [l1_inf, l2]
 
 ################################ Model #####################################
-    def prepare_model(self, X=None, la=10.0, svd_tr=50, ep=100, rate=0.15, prll=0):
+    def prepare_model(self, X=None,  rs=1.0, rl=1.0, tol=0.1, svd_tr=50, ep=100):
         self.X = np.clip(-self.flux, 0.0, None) if X is None else X
         self.Xmean = self.mean if X is None else self.X.mean() 
         self.norm  = np.sum(self.X ** 2)
         self.svd_tr = svd_tr
         self.epoch = ep 
-        self.init_model_params(la, rate)
+        self.tol = tol
+        self.rs = rs
+        self.rl = rl
+        # self.init_model_params(la, rate)
         # self.tol = self.init_tolerance()
-        print(f"lambda {self.la} | rate {self.rate} | gs {self.gs:.3f} | gl {self.gl:.2f} | ep {self.epoch} | svd {self.svd_tr}")
+        # print(f"lambda {self.la} | rate {self.rate} | gs {self.gs:.3f} | gl {self.gl:.2f} | ep {self.epoch} | svd {self.svd_tr}")
+        print(f"lambda {self.tol} | ep {self.epoch} | svd {self.svd_tr} | rs {self.rs:.2f} | rl {self.rl:.2f} |")
 
         # if prll: 
         #     self.pool = ThreadPool(processes=self.N) # Create thread pool for asynchronous processing
@@ -156,8 +160,10 @@ class RPCA(object):
 
     def init_pcp(self):
         self.isStop= False
-        _, w, v = self._svd(self.X, rank=10)
-        self.gl = w[-1] / 10.0
+        u, w, v = self._svd(self.X, rank=10)
+
+        self.gl = w[-1]
+        
         self.mask = self.get_mask(v[:5], ratio=0.1)
         
         S = self.get_S_from_mask(self.X, self.mask)
@@ -172,11 +178,6 @@ class RPCA(object):
         S[:, mask] = X[:, mask]
         return S
     
-    def update_S_from_mask(self, S, add, ):
-        S = np.zeros(self.size)
-        S[:, mask] = self.X[:, mask]
-        return S
-    
     def update_L_from_mask(self, L):
         L[:, mask] = 0.0
         return S
@@ -184,9 +185,8 @@ class RPCA(object):
     def get_mask(self, v, ratio=0.1):
         vv = np.abs(v).sum(0)
         vmax = np.max(vv)
-        cutoff = ratio * vmax
-        self.gs = 0.5 * cutoff
-        mask = (vv > cutoff)
+        self.gs = ratio * vmax
+        mask = (vv > self.gs)
         return mask
 
     def update(self, R, S):
@@ -199,19 +199,25 @@ class RPCA(object):
         return R, S
 
     def update_L(self, L):
-        L, vL = self.shrink_mat(L, self.gl)
+        L, vL = self.shrink_l2(L, self.rl * self.gl)
         mask = self.get_mask(vL[:1], ratio=0.5)
         L[:, ~mask] = 0.0
         self.mask = np.logical_or(mask, self.mask)
         return L
 
     def update_S(self, S):
-        Svec = np.mean(abs(S), axis=0)
-        prox_S = self.shrink_vec(Svec, self.gs)
+        prox_S = self.shrink_l1(S, self.rs * self.gs)
         self.mask = prox_S > 0.0
-        S[:, ~self.mask] = 0.0
-        S[:, self.mask] = self.X[:, self.mask]
+        self.get_S_from_mask(self.X, self.mask)
         return S
+
+    # def update_S(self, S):
+    #     Svec = np.mean(abs(S), axis=0)
+    #     prox_S = self.shrink_vec(Svec, self.rs * self.gs)
+    #     self.mask = prox_S > 0.0
+    #     S[:, ~self.mask] = 0.0
+    #     S[:, self.mask] = self.X[:, self.mask]
+    #     return S
 
     def loss(self,R):
         err = np.sqrt(np.sum(R ** 2) / self.norm)
@@ -221,25 +227,27 @@ class RPCA(object):
     #     self.mask = mask
     #     pass
 
-    def shrink_vec(self, vec, cutoff):
-        return np.sign(vec) * np.maximum((np.abs(vec) - cutoff), 0.0)
+    def shrink_l1(self, X, cutoff):
+        return np.sign(X) * np.maximum((np.abs(X) - cutoff), 0.0)
 
-    def shrink_mat(self, mat, cutoff):
+    def shrink_l2(self, mat, cutoff):
         u, w, v = self._svd(mat, self.svd_tr, tol=1e-2)
-        print(w)
+        # print(w)
         prox_w = np.maximum(w - cutoff, 0.0) 
         self.L_eigs = prox_w[prox_w > 0.0]
         print(self.L_eigs[:10])
         self.L_rk = len(self.L_eigs)
-        u, prox_w, v = u[:,:self.L_rk], prox_w[:self.L_rk], v[:self.L_rk, :]
         print(f"L_{self.L_rk}", end=" ") 
-        return (u * prox_w).dot(v), v
+        return self.rec_svd(u, prox_w, v, rank=self.L_rk)
 
     def _svd(self, X, rank=40, tol=1e-2):
         u, s, v = svds(X, k=rank, tol=tol)
         return  u[:,::-1], s[::-1], v[::-1, :]
     
-
+    def rec_svd(self, u, w, v, rank=None):
+        if rank is not None:
+            u, w, v = u[:,:rank], w[:rank], v[:rank, :]
+        return (u * w).dot(v)
 
     # def init_tolerance(self):
     #     abs_tol   = 1e-4 * np.sqrt(self.nf * self.nw * self.N)
@@ -260,22 +268,23 @@ class RPCA(object):
                 break
         t= time.time() - start
         print(f"t: {t:.2f}")
-        self.h["ep"] = ep + 1
+
+        # self.h["ep"] = ep + 1
         self.finish(*args)
 
     def episode(self, ep, *args):
-        
         R, S = self.update(*args)
         # RSL = np.hstack((R, S, L))
         # E = (self.flux - R - S - L) / 3.0
         # new_z = RSL + np.tile(E, (1, 3))
-
-
         # if self.L_rk < self.L_lb:
         #     self.h['loss'][ep]  = self.loss(R, S, L)
-
         return R, S
     
+    def finish(self, *args):
+        self.R = args[0]
+        self.S = args[1]
+        self.L = self.X - self.R - self.S
     # def stop(self, ep):
     #     if 
 

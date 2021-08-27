@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """
+
 An implementation of the Principal Component Pursuit algorithm for robust PCA
 as described in `Candes, Li, Ma, & Wright <http://arxiv.org/abs/0912.3599>`_.
 
@@ -28,7 +29,7 @@ def pcp(M, delta=1e-6, mu=None, lam = None, S=None,  maxiter=500, verbose=False)
     shape = M.shape
     prod = np.prod(shape)
     # Initialize the tuning parameters.
-    lam = lam or 1.0 / np.sqrt(np.max(shape))
+    lam = lam / np.sqrt(np.max(shape))
     if mu is None:
         mu = 0.25 * prod / np.sum(np.abs(M))
         if verbose:
@@ -40,12 +41,16 @@ def pcp(M, delta=1e-6, mu=None, lam = None, S=None,  maxiter=500, verbose=False)
     # Iterate.
     i = 0
     rank = np.min(shape)
-    u, s, v = _svd(M, 40, tol=1e-2)
-    vv = v[0] 
+    u, s, v = _svd(M, 10, tol=1e-2)
+    vv = np.abs(v[:5]).sum(0) 
     cut = np.quantile(vv, 0.2)
-    vv[vv < cut] = 0
-    S = np.tile(vv, (shape[0], 1))
-    # S = 
+    mask = vv > cut
+    vv[vv < cut] = 0.0
+    S = (u[:,:5] * s[:5]).dot(v[:5])
+    plt.matshow(S)
+    plt.show()
+    # S = np.tile(vv, (shape[0], 1))
+    # S = np.zeros(shape)
     Y = np.zeros(shape)
     while i < max(maxiter, 1):
         # SVD step.
@@ -57,24 +62,21 @@ def pcp(M, delta=1e-6, mu=None, lam = None, S=None,  maxiter=500, verbose=False)
 
         # svd_time = time.time() - strt
         s = shrink(s, 1./mu)
-        # s = np.maximum(s - 1./mu, 0.0, out=s)
         rank = np.sum(s > 0.0)
         u, s, v = u[:, :rank], s[:rank], v[:rank, :]
-        L = np.dot(u, np.dot(np.diag(s), v))
-        # L = (u * s).dot(u)
+        L = (u * s).dot(v)
 
         # Shrinkage step.
         S = shrink(M - L + B, 1 / (lam * mu))
-
+        # S = np.maximum(M - L + B - (lam / mu), 0.0)
         # Lagrange step.
         R = M - L - S
         Y += mu * R
 
         # Check for convergence.
         err = np.sqrt(np.sum(R ** 2) / norm)
-        if verbose:
-            print(("Iteration {0}: error={1:.3e}, rank={2:d}, nnz={3:.4f}")
-                  .format(i, err, np.sum(s > 0), np.sum(S > 0)/prod))
+        if verbose and i % 5 == 0:
+            print(f"EP{i}_e{err:.2e}_L{rank:d}_S{(np.sum(S>0) / prod):.2f}", end=" ")
         if err < delta:
             break
         i += 1
@@ -92,7 +94,7 @@ def shrink(M, tau):
     # return sgn * S
 
 
-def _svd(X, rank, tol=1e-2):
+def _svd(X, rank, tol=1e-5):
     rank = min(rank, 50)
     u, s, v = svds(X, k=rank, tol=tol)
     u, s, v = u[:, ::-1], s[::-1], v[::-1, :]

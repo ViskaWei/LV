@@ -142,10 +142,10 @@ class RPCA(object):
         self.la = la
         self.rate = rate
         if self.center:
-            self.gs = 0.1 * self.rate * self.GCs[self.g][0]
+            self.gs = 0.05* self.GCs[self.g][0]
             self.gl = self.rate * self.GCs[self.g][-1]
         else:
-            self.gs = self.rate * self.Gs[self.g][0]
+            self.gs = 0.005 * self.rate * self.Gs[self.g][0]
             self.gl = self.rate * self.Gs[self.g][-1]
         # self.gl = 6
         self.rho = 1.0 / self.la
@@ -244,7 +244,10 @@ class RPCA(object):
         return (R - B) / (1.0 + self.la)
 
     def update_S(self, S, B=None):
-        return self.prox_l1((S - B), (self.la * self.gs))
+        S = self.prox_l1((S - B), (self.la * self.gs))
+        self.get_sparse_ratio(S)
+        return S
+
 
     def get_sparse_ratio(self, S , out=0):
         SSum = np.sum(np.abs(S),  axis=0)
@@ -258,15 +261,13 @@ class RPCA(object):
         return self.prox_mat((L - B), (self.la * self.gl))
 
     def prox_l1(self, mat, cutoff):
-        clipped = np.maximum(0, mat - cutoff) - np.maximum(0, -mat - cutoff)
-        self.get_sparse_ratio(clipped)
-        return clipped
+        return np.maximum(0, mat - cutoff) - np.maximum(0, -mat - cutoff)
 
     def prox_mat(self, mat, cutoff):
         u, s, vt = svds(mat, k=self.svd_tr, tol=self.tol[3])
         u, s, v = u[:,::-1], s[::-1], vt[::-1, :]
         # u, s, v = svd(mat, full_matrices=False)
-        prox_s = np.maximum(s - cutoff, 0.0) 
+        prox_s = self.prox_l1(s, cutoff)
         self.L_eigs = prox_s[prox_s > 0.0]
         # print(self.L_eigs[:10])
         self.L_rk = len(self.L_eigs)

@@ -306,13 +306,15 @@ class RPCA(object):
         ax = ax or plt.gca()
         ax.matshow(mat, aspect="auto", cmap=self.cmap)
 
-    def plot_mask(self, mask, ax=None, ymax=0.3):
+    def plot_mask(self, mask, ax=None, ymax=0.3, c='r'):
         ax = ax or plt.gca()
-        ax.vlines(self.wave[mask], ymin=0, ymax=ymax, color="r")
+        ax.vlines(self.wave[mask], ymin=0, ymax=ymax, color=c)
 
-    def plot_eigv(self, mask, M=None, v= None,ax=None):
+    def plot_eigv(self, mask=None, M=None, v= None,ax=None, mask_c="r"):
         ax = ax or plt.gca()
-        if v is None: _,_, v =self._svd(M, rank=5) 
+        if v is None: 
+            _,w, v =self._svd(M, rank=10) 
+            print(w)
         for i in range(min(len(v),5)):
             ax.plot(self.wave, v[i] + 0.3*(i+1))
-        self.plot_mask(mask, ax=ax)
+        if mask is not None: self.plot_mask(mask, ax=ax, c=mask_c)

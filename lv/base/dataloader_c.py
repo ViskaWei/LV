@@ -98,6 +98,32 @@ class DataLoader(object):
         ax.xaxis.grid(True)
         if mask is not None: self.plot_mask(mask, ax=ax, c=mask_c)
 
+
+####################################### Mask #######################################
+
+    def trim_mask(self, mask0, niter=2):
+        mask = cp.copy(mask0)
+        for i in range(niter):
+            mask[1:-1] = (mask[1:-1] & mask[:-2]) & mask[2:]
+        mask[0] = False
+        mask[-1] = False
+        return mask
+
+    def plot_mask(self, mask, ymax=0.3, c='r', ax=None):
+        ax = ax or plt.gca()
+        ax.vlines(self.nwave[mask], ymin=0, ymax=ymax, color=c)
+
+    def plot_eroded_mask(self, mask0):
+        f, axs = plt.subplots(2,1,figsize=(16,2), sharex=True)
+        self.plot_mask(cp.asnumpy(mask0), ax=axs[0],ymax=1, c='r')
+        self.plot_mask(self.nmask, ax=axs[1], ymax=1, c='r')
+
+    def get_mask_from_v(self, v, k=5, q=0.8):
+        vv = cp.sum(cp.abs(v[:k]), axis=0)
+        cut = cp.quantile(vv, q)
+        mask = vv > cut
+        return mask
+
 ####################################### M N #######################################
 
     def get_major(self, v=None, k=5, q=0.6, niter=2):
@@ -122,29 +148,6 @@ class DataLoader(object):
             axs = plt.subplots(2,1,figsize=(16,10))[1]
         self.plot_eigv(self.Mv, mask=self.nmask, name="M", step=step, ax=axs[0])
         self.plot_eigv(self.Nv, mask = ~self.nmask, name="N", mask_c="lightgreen", step=step, ax=axs[1])
-
-    def trim_mask(self, mask0, niter=2):
-        mask = cp.copy(mask0)
-        for i in range(niter):
-            mask[1:-1] = (mask[1:-1] & mask[:-2]) & mask[2:]
-        mask[0] = False
-        mask[-1] = False
-        return mask
-
-    def plot_mask(self, mask, ymax=0.3, c='r', ax=None):
-        ax = ax or plt.gca()
-        ax.vlines(self.nwave[mask], ymin=0, ymax=ymax, color=c)
-
-    def plot_eroded_mask(self, mask0):
-        f, axs = plt.subplots(2,1,figsize=(16,2), sharex=True)
-        self.plot_mask(cp.asnumpy(mask0), ax=axs[0],ymax=1, c='r')
-        self.plot_mask(self.nmask, ax=axs[1], ymax=1, c='r')
-
-    def get_mask_from_v(self, v, k=5, q=0.8):
-        vv = cp.sum(cp.abs(v[:k]), axis=0)
-        cut = cp.quantile(vv, q)
-        mask = vv > cut
-        return mask
 
 ####################################### PCP #######################################
     def _pcp(self, X, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):

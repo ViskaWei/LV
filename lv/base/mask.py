@@ -9,8 +9,8 @@ from matplotlib.colors import LogNorm
 
 
 def get_mask(v, ds, k=5, q=0.6, step=2):
-    mask0 = get_mask_from_v(v, k=5, q=q)    
-    mask = trim_mask(mask0, step=2)    
+    mask0 = get_mask_from_v(v, k=k, q=q)    
+    mask = trim_mask(mask0, step=step)    
     f, axs = plt.subplots(1,2,figsize=(16,2))
     ds.plot_mask(cp.asnumpy(mask0), ax=axs[0])
     ds.plot_mask(cp.asnumpy(mask), ax=axs[1])

@@ -17,8 +17,6 @@ __all__ = ["pcp_cupy"]
 from  time import time
 import logging
 import cupy as cp
-import numpy as np
-
 
 
 def pcp_cupy(M, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):    
@@ -40,7 +38,7 @@ def pcp_cupy(M, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):
 
     # Iterate.
     i = 0
-    rank = np.min(shape)
+    rank = shape[1]
     S = cp.zeros(shape)
     Y = cp.zeros(shape)
     while i < max(maxiter, 1):
@@ -76,7 +74,8 @@ def pcp_cupy(M, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):
 
     if (i >= maxiter):
         logging.warn("convergence not reached in pcp")
-    return cp.asnumpy(L), cp.asnumpy(S), (cp.asnumpy(u), cp.asnumpy(s), cp.asnumpy(v))
+    return L, S, (u,s,v)
+    # return cp.asnumpy(L), cp.asnumpy(S), (cp.asnumpy(u), cp.asnumpy(s), cp.asnumpy(v))
 
 
 def shrink(M, tau):

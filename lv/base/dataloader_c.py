@@ -35,6 +35,7 @@ class DataLoader(object):
         self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "terrain", "O":"winter"}
         self.ps =  [["p0","p1", "p2", "p3", "p4"],["p5","p6", "p7", "p8", "p9"],["p10","p11", "p12", "p13", "p14"],["p15","p16", "p17", "p18", "p19"]]
         self.name = None
+        self.lick = None
     
 ################################ Flux Wave #####################################
     def prepare_data(self, flux, wave, para, T, W, fix_CO=False):
@@ -281,6 +282,75 @@ class DataLoader(object):
         plt.title("L & S")
         plt.show()
 
+
+
+    def get_lick(self):
+        dBands = {}
+        dBands['CN'] = [[4142,4177]]
+        dBands['Ca'] = [[3899, 4003], [4222, 4235], [4452, 4475], [8484, 8513],
+                        [8522, 8562], [8642, 8682], [6358, 6402], [6775, 6900]]
+        dBands['Fe'] = [[4369, 4420], [4514, 4559], [4634, 4720], 
+                        [4978, 5054], [5246, 5286], [5312, 5363], 
+                        [5388, 5415], [5697, 5720], [5777, 5797]]
+        dBands['G']  = [[4281, 4316]]
+        dBands['H']  = [[4839, 4877], [4084, 4122], [4320, 4364]]
+        dBands['Mg'] = [[4761, 4799], [5069, 5134], [5154, 5197]]
+        dBands['Na'] = [[8164, 8229], [8180, 8200], [5877, 5909]]
+        dBands['Ti'] = [[6190, 6272], [6600, 6723], [5937, 5994], 
+                        [7124, 7163], [7643, 7717], [5445, 5600], [4759, 4800]]
+
+        cBands = {}
+        cBands['CN'] = 'darkblue'
+        cBands['Ca'] = 'red'
+        cBands['Fe'] = 'yellow'
+        cBands['G']  = 'purple'
+        cBands['H']  = 'cyan'
+        cBands['Mg'] = 'pink'
+        cBands['Na'] = 'orange'
+        cBands['Ti'] = 'lime'
+        self.lick = dBands
+        self.lick_color = cBands
+
+    def plot_lick(self, ax=None):
+        ax = ax or plt.subplots(figsize=(16,2))[1]
+        # ax.grid(True)
+        ax.set_ylim(0, 1)
+        l_max = 1
+        if self.lick is None: self.get_lick()
+        for idx, (key, vals) in enumerate(self.lick.items()):
+            for val in vals:
+                val_idx = np.digitize(val, self.nwave)
+                ax.axvspan(self.nwave[val_idx[0]], self.nwave[val_idx[1]], ymin=0, ymax=l_max, color = self.lick_color[key], label = key)
+    #     for idx, (key, vals) in enumerate(lines.items()):
+    #         ax.vlines(vals, -l_max, 0, color = next(color), label = key, linewidth = 2)
+
+        self.set_unique_legend(ax)
+        self.get_wave_axis(ax=ax,)
+        # self.set_wv_ticks(ax, lim=True)
+        ax.set_ylabel('LICK')
+
+
+    def set_unique_legend(self, ax):
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax.legend(by_label.values(), by_label.keys())
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
    
 ####################################### SAVE #######################################
 # PCP_PATH = '/scratch/ceph/szalay/swei20/AE/PCP_LL.h5'
@@ -301,3 +371,6 @@ def save_N(self, PCP_PATH, NL, NS, NLv, NSv):
         f.create_dataset("NS", data=cp.asnumpy(NS), shape=NS.shape)
         f.create_dataset("NLv", data=cp.asnumpy(NLv), shape=NLv.shape) 
         f.create_dataset("NSv", data=cp.asnumpy(NSv), shape=NSv.shape) 
+
+
+

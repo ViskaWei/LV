@@ -15,9 +15,9 @@ from lv.pcp.pcpc import pcp_cupy
 class DataLoader(object):
     def __init__(self):
         ################################ Flux Wave ###############################
-        self.Ws = {"L": [3800, 5000], "M": [5000, 8000],
+        self.Ws = {"L": [3800, 5000], "M": [6500, 9500],
                    "H": [8000, 13000]}
-        self.Ts = {"L": [4000, 6500], "H": [10000, 30000],
+        self.Ts = {"L": [4000, 5000], "H": [10000, 30000],
                    "T": [8000, 9000], "F": [4000, 30000]}
         self.flux = None
         self.wave = None
@@ -88,7 +88,7 @@ class DataLoader(object):
         _,_,v = self._svd(X)
         return v[:top] 
 
-    def plot_eigv(self, v, top=5, mask=None, step=0.3, mask_c="r", name=None, ax=None):
+    def plot_eigv(self, v, top=5, mask=None, step=0.3, mask_c="r", lw=0.5, name=None, ax=None):
         ax = ax or plt.gca()
         nv = cp.asnumpy(v[:top])
         for i in range(min(len(nv),top)):
@@ -96,7 +96,8 @@ class DataLoader(object):
         ax.set_ylabel(f"Top {top} Eigvs of {name}")
         ax.set_xlim(self.nwave[0]-1, self.nwave[-1]+2)
         ax.xaxis.grid(True)
-        if mask is not None: self.plot_mask(mask, ax=ax, c=mask_c)
+        ax.set_xticks(np.arange(self.nwave[0], self.nwave[-1], 200))
+        if mask is not None: self.plot_mask(mask, ax=ax, c=mask_c, lw=lw)
 
 
 ####################################### Mask #######################################
@@ -109,19 +110,21 @@ class DataLoader(object):
         mask[-1] = False
         return mask
 
-    def plot_mask(self, mask, ymax=0.3, c='r', ax=None):
+    def plot_mask(self, mask, ymin=0, ymax=0.3, c='r', lw=0.2, ax=None):
         ax = ax or plt.gca()
-        ax.vlines(self.nwave[mask], ymin=0, ymax=ymax, color=c)
+        ax.vlines(self.nwave[mask], ymin=ymin, ymax=ymax, color=c, lw=lw)
 
     def plot_eroded_mask(self, mask0):
         f, axs = plt.subplots(2,1,figsize=(16,2), sharex=True)
-        self.plot_mask(cp.asnumpy(mask0), ax=axs[0],ymax=1, c='r')
-        self.plot_mask(self.nmask, ax=axs[1], ymax=1, c='r')
+        self.plot_mask(cp.asnumpy(mask0), ax=axs[0],ymax=1, c='r', lw=1)
+        self.plot_mask(self.nmask, ax=axs[1], ymax=1, c='r', lw=1)
 
-    def get_mask_from_v(self, v, k=5, q=0.8):
-        vv = cp.sum(cp.abs(v[:k]), axis=0)
+    def get_mask_from_v(self, v, k=5, q=0.8, out=0):
+        vv = cp.sum(v[:k]**2, axis=0)
         cut = cp.quantile(vv, q)
         mask = vv > cut
+        if out: 
+            return mask, vv
         return mask
 
 ####################################### M N #######################################
@@ -147,7 +150,7 @@ class DataLoader(object):
         if axs is None:
             axs = plt.subplots(2,1,figsize=(16,10))[1]
         self.plot_eigv(self.Mv, mask=self.nmask, name="M", step=step, ax=axs[0])
-        self.plot_eigv(self.Nv, mask = ~self.nmask, name="N", mask_c="lightgreen", step=step, ax=axs[1])
+        self.plot_eigv(self.Nv, mask = ~self.nmask, name="N", mask_c="k", step=step, ax=axs[1])
 
 ####################################### PCP #######################################
     def _pcp(self, X, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):

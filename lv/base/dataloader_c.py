@@ -20,8 +20,12 @@ class DataLoader(object):
         ################################ Flux Wave ###############################
         self.Ws = {"L": [3800, 5000], "M": [6500, 9500],
                    "H": [8000, 13000]}
+        self.Fs = {"A": [-1.2, -0.2], "B": [-2.5, -1.75], 
+                   "C": [-2.0, -0.3], "Full": [-2.5, 0.75]}
         self.Ts = {"T45": [4000, 5000], "T56": [5000, 6000], "H": [10000, 30000],
-                   "T": [8000, 9000], "F": [4000, 30000]}
+                   "F": [4000, 30000]}
+        self.Ls = {"L02": [0, 2], "L45": [4, 5], "Full": [0, 5]}
+
         self.flux = None
         self.wave = None
         self.mean = None
@@ -38,14 +42,16 @@ class DataLoader(object):
         self.lick = None
     
 ################################ Flux Wave #####################################
-    def prepare_data(self, flux, wave, para, T, W, fix_CO=False):
+    def prepare_data(self, flux, wave, para, W, F="F", T="F", L="F", fix_CO=False):
         #cpu only
+        f = self.Fs[F]
         t = self.Ts[T]
+        l = self.Ls[L]
         w = self.Ws[W]
-        flux       = self.get_flux_in_Prange(flux, para, t, fix_CO=fix_CO)
+        flux       = self.get_flux_in_Prange(flux, para, f, t, l, fix_CO=fix_CO)
         flux, wave = self.get_flux_in_Wrange(flux, wave, w)
 
-        self.name = f"T {t[0]}K-{t[1]}K, W {w[0]}A-{w[1]}A"
+        self.name = f"T {t[0]}K-{t[1]}K, Logg {l[0]}-{l[1]}, W {w[0]}A-{w[1]}A"
         #gpu only
         self.nwave = wave        
         flux = cp.asarray(flux, dtype=cp.float32)
@@ -56,13 +62,17 @@ class DataLoader(object):
         self.nf, self.nw = self.size
         print(f"Cupy flux: {self.nf}, wave: {self.nw}")
     
-    def get_flux_in_Prange(self, flux, para, Ts, fix_CO=True):
+    def get_flux_in_Prange(self, flux, para, Fs, Ts, Ls, fix_CO=True):
         dfpara = self.init_para(para)
         if fix_CO:
             dfpara = dfpara[(dfpara["O"] == 0.0)]
             # dfpara = dfpara[(dfpara["C"] == 0.0) & (dfpara["O"] == 0.0)]
             print(f"CO==0: {dfpara.size}")
-        self.dfpara = dfpara[(dfpara["T"] >= Ts[0]) & (dfpara["T"] <= Ts[1])]
+        maskF = (dfpara["F"] >= Fs[0]) & (dfpara["F"] <= Fs[1]) 
+        maskT = (dfpara["T"] >= Ts[0]) & (dfpara["T"] <= Ts[1]) 
+        maskL = (dfpara["L"] >= Ls[0]) & (dfpara["L"] <= Ls[1]) 
+        mask = maskF & maskT & maskL
+        self.dfpara = dfpara[mask]
         return flux[self.dfpara.index]
 
     def get_flux_in_Wrange(self, flux, wave, Ws):
@@ -247,6 +257,7 @@ class DataLoader(object):
 
 
     def p(self, idx1, idx2, para):
+        plt.figure(figsize=(6,4), facecolor="w")
         sns.scatterplot(
             data=self.dfpara,x=f"p{idx1}", y=f"p{idx2}", hue=para, marker="o", s=2, edgecolor="none",palette=self.color[para])
         plt.title(self.name)
@@ -327,7 +338,7 @@ class DataLoader(object):
         self.set_unique_legend(ax)
         self.get_wave_axis(ax=ax,)
         # self.set_wv_ticks(ax, lim=True)
-        ax.set_ylabel('LICK')
+        # ax.set_ylabel('LICK')
 
 
     def set_unique_legend(self, ax):

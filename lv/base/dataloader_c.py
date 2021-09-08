@@ -19,7 +19,7 @@ class DataLoader(object):
     def __init__(self):
         ################################ Flux Wave ###############################
         self.Ws = {"Blue": [3800, 6500, 2300], "Red_L": [6300, 9700, 3000], "Red_M": [7100, 8850, 5000],
-                   "NIR": [9400, 12600, 4300]}
+                   "NIR": [9400, 12600, 4300], "BlueHB": [8400, 11000]}
         self.Fs = {"M31": [-1.2, -0.2],  "FPoor": [-2.5, -1.75], 
                    "Dwarf": [-2.0, -0.3], "F": [-2.5, 0.75]}
         self.Ts = {"Gaint": [4000, 5000], "Dwarf": [5000, 7000], "BHB": [7000, 10000],
@@ -28,7 +28,7 @@ class DataLoader(object):
 
         self.Ps = {"Giant": [[-2.5, 0.75], [4000, 5000], [0, 2]], 
                    "Dwarf": [[-2.0, -0.3], [5000, 7500], [3.5, 5]],
-                   "BHB": [[-2.5, -1.5], [7000, 9000], [3.5, 4]]}
+                   "BHB": [[-2.5, -1.5], [7000, 9500], [3.5, 4.5]]}
 
         self.flux = None
         self.wave = None
@@ -50,11 +50,11 @@ class DataLoader(object):
     def prepare_data(self, flux, wave, para, W, P, fix_CO=False):
         #cpu only
         p = self.Ps[P]
-        w = self.Ws[W]
+        self.wbnd = self.Ws[W]
 
 
         flux       = self.get_flux_in_Prange(flux, para, p[0], p[1], p[2], fix_CO=fix_CO)
-        flux, wave = self.get_flux_in_Wrange(flux, wave, w)
+        flux, wave = self.get_flux_in_Wrange(flux, wave)
 
         self.name = f"{P} in {W} Arm"
         #gpu only
@@ -80,7 +80,8 @@ class DataLoader(object):
         self.dfpara = dfpara[mask]
         return flux[self.dfpara.index]
 
-    def get_flux_in_Wrange(self, flux, wave, Ws):
+    def get_flux_in_Wrange(self, flux, wave):
+        Ws = self.wbnd
         start = np.digitize(Ws[0], wave)
         end = np.digitize(Ws[1], wave)
         return flux[:, start:end], wave[start:end]
@@ -181,7 +182,7 @@ class DataLoader(object):
         
     def get_wave_axis(self, ax, xgrid=True):
         ax.set_xlim(self.nwave[0]-1, self.nwave[-1]+2)
-        ax.set_xticks(np.arange(self.nwave[0], self.nwave[-1], 200))
+        ax.set_xticks(np.arange(self.wbnd[0], self.wbnd[-1], 200))
         ax.xaxis.grid(xgrid)
 
     def plot_masked(self, ax=None, c="r", ymin=0.5, ymax=1, alpha=0.8):

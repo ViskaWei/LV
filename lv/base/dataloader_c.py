@@ -18,13 +18,17 @@ import seaborn as sns
 class DataLoader(object):
     def __init__(self):
         ################################ Flux Wave ###############################
-        self.Ws = {"L": [3800, 5000], "M": [6500, 9500],
-                   "H": [8000, 13000]}
-        self.Fs = {"A": [-1.2, -0.2], "B": [-2.5, -1.75], 
-                   "C": [-2.0, -0.3], "Full": [-2.5, 0.75]}
-        self.Ts = {"T45": [4000, 5000], "T56": [5000, 6000], "H": [10000, 30000],
+        self.Ws = {"Blue": [3800, 7100], "Red": [6500, 9500],
+                   "Infrared": [8000, 13000]}
+        self.Fs = {"A": [-1.2, -0.2], "B": [-2.5, -1.75], "FPoor": [-2.5, -1.75], 
+                   "C": [-2.0, -0.3], "F": [-2.5, 0.75]}
+        self.Ts = {"T45": [4000, 5000], "T56": [5000, 6000], "TBH": [10000, 12000],
                    "F": [4000, 30000]}
-        self.Ls = {"L02": [0, 2], "L45": [4, 5], "Full": [0, 5]}
+        self.Ls = {"L02": [0, 2], "L45": [4, 5], "L3": [2.5, 3.5], "F": [0, 5]}
+
+        self.Ps = {"Giant": [[-2.5, 0.75], [4000, 5000], [0, 2]], 
+                   "Dwarf": [[-2.0, -0.3], [5000, 7500], [4, 5]],
+                   "BlueHB": [[-2.5, -1.5], [7000, 9000], [3.5, 4]]}
 
         self.flux = None
         self.wave = None
@@ -36,22 +40,23 @@ class DataLoader(object):
         self.nw = None
 
         self.cmap="YlGnBu"
-        self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "terrain", "O":"winter"}
+        self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "gist_rainbow", "O":"winter"}
         self.ps =  [["p0","p1", "p2", "p3", "p4"],["p5","p6", "p7", "p8", "p9"],["p10","p11", "p12", "p13", "p14"],["p15","p16", "p17", "p18", "p19"]]
         self.name = None
         self.lick = None
+        # self.arms = ["Blue", "Red", "Infrared"] 
     
 ################################ Flux Wave #####################################
-    def prepare_data(self, flux, wave, para, W, F="F", T="F", L="F", fix_CO=False):
+    def prepare_data(self, flux, wave, para, W, P, fix_CO=False):
         #cpu only
-        f = self.Fs[F]
-        t = self.Ts[T]
-        l = self.Ls[L]
+        p = self.Ps[P]
         w = self.Ws[W]
-        flux       = self.get_flux_in_Prange(flux, para, f, t, l, fix_CO=fix_CO)
+
+
+        flux       = self.get_flux_in_Prange(flux, para, p[0], p[1], p[2], fix_CO=fix_CO)
         flux, wave = self.get_flux_in_Wrange(flux, wave, w)
 
-        self.name = f"T {t[0]}K-{t[1]}K, Logg {l[0]}-{l[1]}, W {w[0]}A-{w[1]}A"
+        self.name = f"{P} in {W} Arm"
         #gpu only
         self.nwave = wave        
         flux = cp.asarray(flux, dtype=cp.float32)
@@ -82,6 +87,8 @@ class DataLoader(object):
 
     def init_para(self, para):
         return pd.DataFrame(data=para, columns=["F","T","L","C","O"])
+
+    def 
 
     def resampleSpec(self, flux, step):
         c = cp.cumsum(flux,axis=1)
@@ -188,10 +195,11 @@ class DataLoader(object):
 
         ax.axvspan(self.nwave[self.ub[-1]]+1, self.nwave[-1], ymin=ymin, ymax=ymax, color=c, alpha=alpha)
 
-    def plot_MN_mask(self):
+    def plot_MN_mask(self, v=None):
         f, ax = plt.subplots(1, figsize=(16,3),facecolor="w")
-        self.plot_complement(ymin=0,ymax=0.5, ax=ax)
-        self.plot_masked(ymin=0.5,ymax=1, ax=ax)
+        self.plot_complement(ymin=0,ymax=0.5, ax=ax, alpha=0.5)
+        self.plot_masked(ymin=0.5,ymax=1, ax=ax, alpha=0.5)
+        if v is not None: self.plot_v(v, 0, ax=ax, c= 'k')
         self.get_wave_axis(ax=ax, xgrid=0)
 
 ####################################### M N #######################################
@@ -256,10 +264,15 @@ class DataLoader(object):
     #         self.Gs[self.g] = [l1_inf, l2]
 
 
-    def p(self, idx1, idx2, para):
-        plt.figure(figsize=(6,4), facecolor="w")
+    def p(self, idx1, idx2, para, large=0):
+        if large:
+            plt.figure(figsize=(8,6), facecolor="w")
+            s=5
+        else:
+            plt.figure(figsize=(6,4), facecolor="w")
+            s=3
         sns.scatterplot(
-            data=self.dfpara,x=f"p{idx1}", y=f"p{idx2}", hue=para, marker="o", s=2, edgecolor="none",palette=self.color[para])
+            data=self.dfpara,x=f"p{idx1}", y=f"p{idx2}", hue=para, marker="o", s=s, edgecolor="none",palette=self.color[para])
         plt.title(self.name)
 
     def pp(self, idx, para):
@@ -340,6 +353,14 @@ class DataLoader(object):
         # self.set_wv_ticks(ax, lim=True)
         # ax.set_ylabel('LICK')
 
+    def plot_v(self, vs, idx, nidx=None, c=None, ax=None):
+        if nidx is None: nidx = idx
+        if ax is None:
+            ax = plt.subplots(figsize=(16,5))[1]
+        vs = cp.asnumpy(vs)
+        v = vs[idx]
+        ax.plot(self.nwave, v, label=nidx, c=c)
+        
 
     def set_unique_legend(self, ax):
         handles, labels = ax.get_legend_handles_labels()

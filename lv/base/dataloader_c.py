@@ -88,7 +88,10 @@ class DataLoader(object):
     def init_para(self, para):
         return pd.DataFrame(data=para, columns=["F","T","L","C","O"])
 
-    def 
+    def get_resolution(self):
+        diff = cp.diff(self.wave) / self.wave[1:]
+        res = 1.0 / diff[0]
+        return res
 
     def resampleSpec(self, flux, step):
         c = cp.cumsum(flux,axis=1)

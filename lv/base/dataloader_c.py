@@ -60,7 +60,7 @@ class DataLoader(object):
         #gpu only
         self.nwave = wave        
         flux = cp.asarray(flux, dtype=cp.float32)
-        wave = cp.asarray(wave, dtype=cp.float16)
+        wave = cp.asarray(wave, dtype=cp.float32)
         self.flux = cp.clip(-flux, 0.0, None)
         self.wave = wave
         self.size = self.flux.shape
@@ -90,8 +90,7 @@ class DataLoader(object):
         return pd.DataFrame(data=para, columns=["F","T","L","C","O"])
 
     def get_resolution(self):
-        diff = cp.diff(self.wave) / self.wave[1:]
-        res = 1.0 / diff[0]
+        res = self.wave[1] / (self.wave[1]-self.wave[0])
         return res
 
     def resampleSpec(self, flux, step):

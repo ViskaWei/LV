@@ -38,6 +38,8 @@ class DataLoader(object):
         self.prod = None 
         self.nf = None
         self.nw = None
+        self.mask = None
+        self.nmask = None
 
         self.cmap="YlGnBu"
         self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "gist_rainbow", "O":"winter"}
@@ -117,13 +119,14 @@ class DataLoader(object):
         _,_,v = self._svd(X)
         return v[:top] 
 
-    def plot_eigv(self, v, top=5, mask=None, step=0.3, mask_c="r", lw=0.5, name=None, ax=None):
+    def plot_eigv(self, v, top=5, mask=None, step=0.3, mask_c="r", lw=0.5, name=None, wave=None, ax=None):
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
         nv = cp.asnumpy(v[:top])
+        if wave is None: wave = self.nwave
         for i in range(min(len(nv),top)):
-            ax.plot(self.nwave, nv[i] + step*(i+1))
+            ax.plot(wave, nv[i] + step*(i+1))
         ax.set_ylabel(f"Top {top} Eigvs of {name}")
-        self.get_wave_axis(ax=ax)
+        self.get_wave_axis(wave=wave, ax=ax)
         if mask is not None: self.plot_mask(mask, ax=ax, c=mask_c, lw=lw)
 
 
@@ -153,47 +156,55 @@ class DataLoader(object):
         mask = vv > cut        
         return mask, vv
 
-    def get_peaks(self, v=None, k=100, q=0.6, prom=0.2, out=0):
+    def get_peaks(self, v=None, k=100, q=0.6, prom=0.2):
         if v is None: _,_,v = self._svd(self.flux)
         mask, vv = self.get_mask_from_v(v, k=k, q=q)   
         vv[~mask]  = 0.0
         nvv = cp.asnumpy(vv)    # switch from GPU to CPU
-        self.peaks, prop=find_peaks(nvv, prominence=(prom, None))
+
+        peaks, prop = find_peaks(nvv, prominence=(prom, None))
+        return peaks, prop, nvv
+
+    def get_mask_from_peaks(self, peaks, prop, out=0):
         self.lb = prop["left_bases"]
         self.ub = prop["right_bases"]
-        mask = np.zeros(len(nvv), dtype=bool)
-        for i in range(len(self.peaks)):
-            mask[self.lb[i]:self.ub[i]+1]=True
-        
-        self.mask = cp.asarray(mask, dtype=cp.bool)
-        self.nmask = mask 
-        if out:
-            return nvv
+        mask = np.zeros_like(self.wave, dtype=bool)
 
-    def plot_peaks(self, nvv, k, prom, ax=None):
+        for i in range(len(peaks)):
+            mask[self.lb[i]:self.ub[i]+1]=True
+        self.mask = cp.asarray(mask, dtype=cp.bool)
+        self.nmask = mask
+
+
+    def plot_peaks(self, nvv, peaks, k, prom, ax=None):
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
         ax.plot(self.nwave, nvv, c="k", label=f"leverage score k={k}")
-        vpeaks = nvv[self.peaks]
-        ax.plot(self.nwave[self.peaks], vpeaks, "bx", markersize=10, label=f"prominence={prom}")
-        self.plot_masked(ax=ax)
+        vpeaks = nvv[peaks]
+        ax.plot(self.nwave[peaks], vpeaks, "bx", markersize=10, label=f"prominence={prom}")
+        if self.nmask is not None: self.plot_masked(ax=ax)
         self.get_wave_axis(ax=ax)
         ax.legend()
         
-    def get_wave_axis(self, ax, xgrid=True):
-        ax.set_xlim(self.nwave[0]-1, self.nwave[-1]+2)
-        ax.set_xticks(np.arange(self.wbnd[0], self.wbnd[-1], 200))
+    def get_wave_axis(self, wave= None, ax=None, xgrid=True):
+        if wave is None: 
+            ax.set_xlim(self.nwave[0]-1, self.nwave[-1]+2)
+            ax.set_xticks(np.arange(self.wbnd[0], self.wbnd[-1], 200))
+            
+        else:
+            ax.set_xlim(wave[0]-1, wave[-1]+2)
+            ax.set_xticks(np.arange(int(wave[0]), np.ceil(wave[-1]), 200))
         ax.xaxis.grid(xgrid)
 
     def plot_masked(self, ax=None, c="r", ymin=0.5, ymax=1, alpha=0.8):
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
-        for i in range(len(self.peaks)):
+        for i in range(len(self.lb)):
             ax.axvspan(self.nwave[self.lb[i]], self.nwave[self.ub[i]], ymin=ymin, ymax=ymax, color=c, alpha=alpha)
 
     def plot_complement(self, ax=None, c="g", ymin=0.0, ymax=0.1, alpha=0.8):
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
         ax.axvspan(self.nwave[0], self.nwave[self.lb[0]]-1, ymin=ymin, ymax=ymax, color=c, alpha=alpha)
 
-        for i in range(1, len(self.peaks)):
+        for i in range(1, len(self.lb)):
             ax.axvspan(self.nwave[self.ub[i-1]]+1, self.nwave[self.lb[i]]-1, ymin=ymin, ymax=ymax, color=c, alpha=alpha)
 
         ax.axvspan(self.nwave[self.ub[-1]]+1, self.nwave[-1], ymin=ymin, ymax=ymax, color=c, alpha=alpha)

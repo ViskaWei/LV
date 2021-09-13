@@ -34,7 +34,7 @@ def pcp_cupy(M, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):
     if norm is None:
         norm = cp.sum(M ** 2)
     # norm = 320862.3
-    print(mu, lam, norm)
+    print(f"mu {mu:.2f}, lambda {lam:.4f}, norm {norm:.1f}")
 
     # Iterate.
     i = 0
@@ -74,6 +74,7 @@ def pcp_cupy(M, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):
 
     if (i >= maxiter):
         logging.warn("convergence not reached in pcp")
+    print(i)
     return L, S, (u,s,v)
     # return cp.asnumpy(L), cp.asnumpy(S), (cp.asnumpy(u), cp.asnumpy(s), cp.asnumpy(v))
 

@@ -1,16 +1,19 @@
 import numpy as np
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 
 class Convolve:
-    def __init__(self, flux, wave, wref=5000, res_in=5000, res_out=3000):
-        self.flux = flux
+    def __init__(self, wave, wref=5000, res_in=5000, res_out=3000):
+        self.Ws = {"Blue": [3800, 6500, 2300], "Red_L": [6300, 9700, 3000], "Red_M": [7100, 8850, 5000],
+                   "NIR": [9400, 12600, 4300]}
         self.wave = wave
         self.wref = wref
         self.res_in = res_in
         self.res_out = res_out
         self.kernel = None
         self.sigma_kernel = None
+        self.init()
 
     def init(self):
         self.get_sigmas()
@@ -23,28 +26,34 @@ class Convolve:
 
     def get_kernel(self):
         kernel_mask = (self.wref - 5 < self.wave) & (self.wave < self.wref + 5)
-
         kernel_wave = self.wave[kernel_mask][:-1]
         kernel_wave -= kernel_wave[kernel_wave.size // 2]
-        print(kernel_wave.shape, kernel_wave)
+        # print(kernel_wave.shape, kernel_wave)
         kernel = self.gauss_kernel(kernel_wave, self.sigma_kernel)
         self.kernel = kernel / kernel.sum()
 
     def gauss_kernel(self, dwave, sigma):
         return 1.0 / np.sqrt(2 * np.pi) / sigma * np.exp(-dwave**2 / (2 * sigma**2))
 
-    def convolve(self):
-        self.init()
-        flux = np.convolve(self.kernel,self.flux, mode='same')
-        return flux
+    def convolve(self, flux):
+        return np.convolve(self.kernel, flux, mode='same')
 
-    def plot_convolved(self, flux, lb=8600, ub=8700):
+    def convolve_all(self, flux):
+        flux_conv = np.zeros_like(flux)
+        for i in tqdm(range(flux.shape[0])):
+            flux_conv[i] = self.convolve(flux[i])
+        return flux_conv
+
+    def plot_convolved(self, flux, flux_conv, lb=8600, ub=8700, log=1):
         mask = (self.wave > lb) & (self.wave < ub)
-        plt.figure(figsize=(16, 10))
-        plt.plot(self.wave[mask], self.flux[mask])
-        plt.plot(self.wave[mask], flux[mask])
-        plt.yscale("log")
-        plt.xaxis.grid()
+        plt.figure(figsize=(8, 3), facecolor="w")
+        ww = self.wave[mask]
+        plt.plot(ww, flux[mask], label=f"R {self.res_in}", c="k")
+        plt.plot(ww, flux_conv[mask], label=f"R {self.res_out}", c="r")
+        if log: plt.yscale("log")
+        plt.xlim(ww[0], ww[-1])
+        plt.grid(1)
+        plt.legend()
         # plt.plot(self.wave[mask][::2], flux[mask][::2])
 
 

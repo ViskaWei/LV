@@ -18,7 +18,7 @@ import seaborn as sns
 class DataLoader(object):
     def __init__(self):
         ################################ Flux Wave ###############################
-        self.Ws = {"Blue": [3800, 6500, 2300], "Red_L": [6300, 9700, 3000], "Red_M": [7100, 8850, 5000],
+        self.Ws = {"Blue": [3800, 6500, 2300], "RedL": [6300, 9700, 3000], "RedM": [7100, 8850, 5000],
                    "NIR": [9400, 12600, 4300]}
 
         self.Ps = {"M31G": [[-2.5, 0.0], [3500, 5000], [0.0, 2.0]], 
@@ -27,7 +27,7 @@ class DataLoader(object):
                    "BHB":  [[-2.5,-1.5], [7000, 9500], [2.0, 3.0]],
                    "RHB":  [[-1.0, 0.0], [5000, 6500], [2.0, 3.0]],
                    "DGG":  [[-2.5,-1.0], [3500, 5500], [0.0, 3.5]]}
-
+        self.Nms = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
         self.flux = None
         self.wave = None
         self.mean = None
@@ -44,17 +44,31 @@ class DataLoader(object):
         self.ps =  [["p0","p1", "p2", "p3", "p4"],["p5","p6", "p7", "p8", "p9"],["p10","p11", "p12", "p13", "p14"],["p15","p16", "p17", "p18", "p19"]]
         self.name = None
         self.lick = None
+        # self.path = {"Blue":      
+#         "}
+#         REDM_PATH = "/scratch/ceph/szalay/swei20/AE/norm_flux_RedM_R5000.h5"
+# BLUE_PATH = 
+# NIR_PATH = "/scratch/ceph/szalay/swei20/AE/norm_flux_NIR_R4300.h5"
         # self.arms = ["Blue", "Red", "Infrared"] 
     
+
+
 ################################ Flux Wave #####################################
-    def prepare_data(self, flux, wave, para, W, P, fix_CO=False):
+    def prepare_data(self, W, P, flux=None, wave=None, para=None, fix_CO=False):
+        self.W = self.Ws[W]
+        path = f'/scratch/ceph/szalay/swei20/AE/norm_flux_{W}_R{self.W[2]}.h5'
+
+        if flux is None:
+            with h5py.File(path, 'r') as f:
+                flux = f['flux'][()]
+                para = f['para'][()]
+                wave = f['wave'][()]
         #cpu only
         p = self.Ps[P]
-        self.wbnd = self.Ws[W]
 
-
-        flux       = self.get_flux_in_Prange(flux, para, p[0], p[1], p[2], fix_CO=fix_CO)
-        flux, wave = self.get_flux_in_Wrange(flux, wave)
+        index       = self.get_flux_in_Prange(para, p, fix_CO=fix_CO)
+        flux   = flux[index]
+        # flux, wave = self.get_flux_in_Wrange(flux, wave)
 
         self.name = f"{P} in {W} Arm"
         #gpu only
@@ -67,7 +81,8 @@ class DataLoader(object):
         self.nf, self.nw = self.size
         print(f"Cupy flux: {self.nf}, wave: {self.nw}")
     
-    def get_flux_in_Prange(self, flux, para, Fs, Ts, Ls, fix_CO=True):
+    def get_flux_in_Prange(self, para, p, fix_CO=True):
+        Fs, Ts, Ls = p
         dfpara = self.init_para(para)
         if fix_CO:
             dfpara = dfpara[(dfpara["O"] == 0.0)]
@@ -78,10 +93,10 @@ class DataLoader(object):
         maskL = (dfpara["L"] >= Ls[0]) & (dfpara["L"] <= Ls[1]) 
         mask = maskF & maskT & maskL
         self.dfpara = dfpara[mask]
-        return flux[self.dfpara.index]
+        return self.dfpara.index
 
     def get_flux_in_Wrange(self, flux, wave):
-        Ws = self.wbnd
+        Ws = self.W
         start = np.digitize(Ws[0], wave)
         end = np.digitize(Ws[1], wave)
         return flux[:, start:end], wave[start:end]
@@ -186,7 +201,7 @@ class DataLoader(object):
     def get_wave_axis(self, wave= None, ax=None, xgrid=True):
         if wave is None: 
             ax.set_xlim(self.nwave[0]-1, self.nwave[-1]+2)
-            ax.set_xticks(np.arange(self.wbnd[0], self.wbnd[-1], 200))
+            ax.set_xticks(np.arange(self.W[0], self.W[-1], 200))
             
         else:
             ax.set_xlim(wave[0]-1, wave[-1]+2)

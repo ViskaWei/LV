@@ -28,30 +28,34 @@ class DataLoader(object):
                    "R": [[-1.0, 0.0], [5000, 6500], [2.0, 3.0]],
                    "G": [[-2.5,-1.0], [3500, 5500], [0.0, 3.5]]}
         self.W = None
-        self.nw = None
         self.P = None
-        self.v = None
-        self.nv = None
+        self.V = None
+        self.nV = None
         self.Names = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
         self.flux = None
         self.wave = None
-
+        self.mean = None
+        self.size = None
+        self.center = False
+        self.prod = None 
+        self.nf = None
+        self.nw = None
         self.mask = None
         self.nmask = None
-        self.pmax = None
-
-        self.M = None
-        self.N = None
-        self.Mv = None
-        self.Nv = None
-        self.Mw = None
-        self.Nw = None
 
         self.cmap="YlGnBu"
         self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "gist_rainbow", "O":"winter"}
         self.ps =  [["p0","p1", "p2", "p3", "p4"],["p5","p6", "p7", "p8", "p9"],["p10","p11", "p12", "p13", "p14"],["p15","p16", "p17", "p18", "p19"]]
         self.name = None
         self.lick = None
+        # self.path = {"Blue":      
+#         "}
+#         REDM_PATH = "/scratch/ceph/szalay/swei20/AE/norm_flux_RedM_R5000.h5"
+# BLUE_PATH = 
+# NIR_PATH = "/scratch/ceph/szalay/swei20/AE/norm_flux_NIR_R4300.h5"
+        # self.arms = ["Blue", "Red", "Infrared"] 
+    
+
 
 ################################ Flux Wave #####################################
     def prepare_data(self, W, P, flux, wave, para, fix_CO=False):
@@ -60,9 +64,10 @@ class DataLoader(object):
         self.nwave = wave        
         index = self.get_flux_in_Prange(para, fix_CO=fix_CO)
         flux  = flux[index]
+        self.nSpec = flux.shape[0]
 
         # flux, wave = self.get_flux_in_Wrange(flux, wave)
-        print(f"Cupy flux: {self.flux.shape[0]}, wave: {len(self.nwave)}")
+        print(f"Cupy flux: {self.nSpec}, wave: {len(self.nwave)}")
         self.name = f"{self.Names[P]} in {W}"
 
         #gpu only
@@ -70,7 +75,6 @@ class DataLoader(object):
         wave = cp.asarray(wave, dtype=cp.float32)
         self.flux = cp.clip(-flux, 0.0, None)
         self.wave = wave
-        self.nw = len(wave)
     
     def get_flux_in_Prange(self, para, fix_CO=True):
         Fs, Ts, Ls = self.P
@@ -103,123 +107,136 @@ class DataLoader(object):
         if out_w: return v[:top], w
         return v[:top] 
 
-    def plot_eigv(self, v, top=5, step=0.3, isM=None, name=None, ax=None):
+    def plot_eigv(self, v, top=5, mask=None, step=0.3, mask_c="r", lw=0.5, name=None, wave=None, ax=None):
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
         nv = cp.asnumpy(v[:top])
+        if wave is None: wave = self.nwave
         for i in range(min(len(nv),top)):
-            ax.plot(self.nwave, nv[i] + step*(i+1))
-        ax.set_ylabel(f"Top {top} {name} {self.name}")
-        self.get_wave_axis(ax=ax)
-        if isM is not None: self.plot_mask_below(isM=isM, large=1, ax=ax) 
-        
+            ax.plot(wave, nv[i] + step*(i+1))
+        ax.set_ylabel(f"Top {top} Eigvs of {name}")
+        self.get_wave_axis(wave=wave, ax=ax)
+        if mask is not None: self.plot_mask(mask, ax=ax, c=mask_c, lw=lw)
 
     def plot_V(self, nv, top=5, step=0.3, ax=None):
         wave = self.nwave        
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
         for i in range(min(len(nv),top)):
             ax.plot(wave, nv[i] + step*(i+1))
-        self.get_wave_axis(ax=ax)
+        self.get_wave_axis(wave=wave, ax=ax)
 
     def init_pcp(self, step=0.3):
-        self.v = self.get_eigv(self.flux, top=200, out_w=False)
-        self.nv = cp.asnumpy(self.v)
-        self.plot_V(self.nv, step=step)
+        self.V = self.get_eigv(self.flux, top=200, out_w=False)
+        self.nV = cp.asnumpy(self.V)
+        self.plot_V(self.nV, step=step)
         plt.ylabel(self.name)
 ####################################### Mask #######################################
+
+    def trim_mask(self, mask0, niter=2):
+        mask = cp.copy(mask0)
+        for i in range(niter):
+            mask[1:-1] = (mask[1:-1] & mask[:-2]) & mask[2:]
+        mask[0] = False
+        mask[-1] = False
+        return mask
+
     def plot_mask(self, mask, ymin=0, ymax=0.3, c='r', lw=0.2, ax=None):
         ax = ax or plt.gca()
         ax.vlines(self.nwave[mask], ymin=ymin, ymax=ymax, color=c, lw=lw)
 
-    def plot_mask_below(self, isM=1, large=0, ax=None):
-        ymin = -self.pmax ** 0.5 if large else -self.pmax*0.1
-        if isM:
-            ax.vlines(self.nwave[self.nmask], ymin=ymin, ymax=0.0, color="r", alpha=0.5)
-        else:
-            ax.vlines(self.nwave[~self.nmask], ymin=ymin, ymax=0.0, color="g", alpha=0.5)
 
+    def plot_eroded_mask(self, mask0):
+        f, axs = plt.subplots(2,1,figsize=(16,2), sharex=True)
+        self.plot_mask(cp.asnumpy(mask0), ax=axs[0],ymax=1, c='r', lw=1)
+        self.plot_mask(self.nmask, ax=axs[1], ymax=1, c='r', lw=1)
 
-    def get_mask_from_nv(self, nv, k=5, q=0.8):
-        vv = np.sum(nv[:k]**2, axis=0)
-        cut = np.quantile(vv, q)
+    def get_mask_from_v(self, v, k=5, q=0.8, out=0):
+        vv = cp.sum(v[:k]**2, axis=0)
+        cut = cp.quantile(vv, q)
         mask = vv > cut        
         return mask, vv
 
-    def get_peaks(self, nv=None, k=100, q=0.6, prom=0.2):
-        if nv is None: nv = self.nv
-        mask, nvv = self.get_mask_from_nv(nv, k=k, q=q)   
-        nvv[~mask]  = 0.0
+    def get_peaks(self, v=None, k=100, q=0.6, prom=0.2):
+        if v is None: _,_,v = self._svd(self.flux)
+        mask, vv = self.get_mask_from_v(v, k=k, q=q)   
+        vv[~mask]  = 0.0
+        nvv = cp.asnumpy(vv)    # switch from GPU to CPU
+
         peaks, prop = find_peaks(nvv, prominence=(prom, None))
         return peaks, prop, nvv
+
+    def get_mask_from_peaks(self, peaks, prop, out=0):
+        self.lb = prop["left_bases"]
+        self.ub = prop["right_bases"]
+        mask = np.zeros_like(self.wave, dtype=bool)
+
+        for i in range(len(peaks)):
+            mask[self.lb[i]:self.ub[i]+1]=True
+        self.mask = cp.asarray(mask, dtype=cp.bool)
+        self.nmask = mask
+
 
     def plot_peaks(self, nvv, peaks, k, prom, ax=None):
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
         ax.plot(self.nwave, nvv, c="k", label=f"leverage score k={k}")
         vpeaks = nvv[peaks]
         ax.plot(self.nwave[peaks], vpeaks, "bx", markersize=10, label=f"prominence={prom}")
+        if self.nmask is not None: self.plot_masked(ax=ax)
         self.get_wave_axis(ax=ax)
         ax.legend()
-
-    def get_mask_from_peaks(self, peaks, prop):
-        prom = prop["prominences"]
-        lb = prop["left_bases"]
-        ub = prop["right_bases"]
-        mask = np.zeros_like(self.nwave, dtype=bool)
-        for i in range(len(peaks)):
-            mask[lb[i]:ub[i]+1] = True
-        self.pmax = np.max(prom)
-        self.nmask = mask
-        self.mask = cp.asarray(mask, dtype=cp.bool)
-
-    def plot_mask_from_peaks(self, peaks, prop, nvv, ax=None):
-        self.get_mask_from_peaks(peaks, prop)
-        if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
-        ax.plot(self.nwave, nvv, c="k")
-        ax.plot(self.nwave[peaks], nvv[peaks], "bx", markersize=10)
-        self.plot_mask_below(isM=1, ax=ax)
-        self.get_wave_axis(ax=ax)
-
+        
     def get_wave_axis(self, wave= None, ax=None, xgrid=True):
         if wave is None: 
             ax.set_xlim(self.nwave[0]-1, self.nwave[-1]+2)
-            ax.set_xticks(np.arange(self.W[0], self.W[1], 200))  
+            ax.set_xticks(np.arange(self.W[0], self.W[-1], 200))
+            
         else:
             ax.set_xlim(wave[0]-1, wave[-1]+2)
             ax.set_xticks(np.arange(int(wave[0]), np.ceil(wave[-1]), 200))
         ax.xaxis.grid(xgrid)
 
-    def plot_MN_mask(self, idx=0, ax=None):
+    def plot_masked(self, ax=None, c="r", ymin=0.5, ymax=1, alpha=0.8):
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
-        ax.vlines(self.nwave[self.nmask], ymin=0.0, ymax=self.pmax ** 0.5, color="r", alpha=0.3)
-        ax.vlines(self.nwave[~self.nmask], ymin=-self.pmax ** 0.5, ymax=0.0, color="g", alpha=0.3)
-        ax.plot(self.nwave, self.nv[idx], c="k")        
+        for i in range(len(self.lb)):
+            ax.axvspan(self.nwave[self.lb[i]], self.nwave[self.ub[i]], ymin=ymin, ymax=ymax, color=c, alpha=alpha)
+
+    def plot_complement(self, ax=None, c="g", ymin=0.0, ymax=0.1, alpha=0.8):
+        if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
+        ax.axvspan(self.nwave[0], self.nwave[self.lb[0]]-1, ymin=ymin, ymax=ymax, color=c, alpha=alpha)
+
+        for i in range(1, len(self.lb)):
+            ax.axvspan(self.nwave[self.ub[i-1]]+1, self.nwave[self.lb[i]]-1, ymin=ymin, ymax=ymax, color=c, alpha=alpha)
+
+        ax.axvspan(self.nwave[self.ub[-1]]+1, self.nwave[-1], ymin=ymin, ymax=ymax, color=c, alpha=alpha)
+
+    def plot_MN_mask(self, v=None):
+        f, ax = plt.subplots(1, figsize=(16,3),facecolor="w")
+        self.plot_complement(ymin=0,ymax=0.5, ax=ax, alpha=0.5)
+        self.plot_masked(ymin=0.5,ymax=1, ax=ax, alpha=0.5)
+        if v is not None: self.plot_v(v, 0, ax=ax, c= 'k')
         self.get_wave_axis(ax=ax, xgrid=0)
 
 ####################################### M N #######################################
-    def get_MN(self, mask, top=5):
-        self.M = self.flux[:,  mask]
-        self.N = self.flux[:, ~mask]    
-        Mv, self.Mw =self.get_eigv(self.M, top=top, out_w=True)
-        Nv, self.Nw =self.get_eigv(self.N, top=top, out_w=True)
-        Mv = self.get_xv(Mv, isM=1)
-        Nv = self.get_xv(Nv, isM=0)
-        self.nMv = cp.asnumpy(Mv)
-        self.nNv = cp.asnumpy(Nv)
 
-    def get_xv(self, v, isM=1):
-        xv = cp.zeros((v.shape[0], self.nw))
-        if isM:
-            xv[:, self.mask] = v
-        else:
-            xv[:, ~self.mask] = v
-        return xv
+    def get_MN(self, mask, top=5):
+        M = cp.zeros_like(self.flux)
+        N = cp.zeros_like(self.flux)
+        M[:,  mask] = self.flux[:,  mask]
+        N[:, ~mask] = self.flux[:, ~mask]    
+        self.M = M
+        self.N = N    
+        self.Mv =self.get_eigv(M, top=top)
+        self.Nv =self.get_eigv(N, top=top)
 
     def plot_MN(self, step=0.3, axs=None):
-        if axs is None: axs = plt.subplots(2,1,figsize=(16,10))[1]
-        self.plot_V(self.nMv, top=5, step=step, ax=axs[0])
-        self.plot_mask_below(isM=1, large=1, ax=axs[0])
+        if axs is None:
+            axs = plt.subplots(2,1,figsize=(16,10))[1]
+        self.plot_eigv(self.Mv, mask=None, name="M", step=step, ax=axs[0])
+        self.plot_masked(ax=axs[0], ymin=0, ymax=0.1)
+        axs[0].set_ylim(0.0, None)
+        self.plot_eigv(self.Nv, mask =None, name="N", mask_c="k", step=step, ax=axs[1])
+        self.plot_complement(ax=axs[1], ymin=0, ymax=0.1)
+        axs[1].set_ylim(0.0, None)
 
-        self.plot_V(self.nNv, top=5, step=step, ax=axs[1])
-        self.plot_mask_below(isM=0, large=1, ax=axs[1])
 
 ####################################### PCP #######################################
     def _pcp(self, X, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):
@@ -227,41 +244,39 @@ class DataLoader(object):
         XSv = self.get_eigv(XS, top = 5)
         return XL, XS, XLv, XSv
 
-    def eval_pcp(self, XLv, XSv, isM=1, step=0.3, ax=None):
-        if ax is None: ax = plt.subplots(2, 1, figsize=(16,6),facecolor="w")[1]
-        XLv = self.get_xv(XLv, isM=isM)
-        XSv = self.get_xv(XSv, isM=isM)
-        nXLv = cp.asnumpy(XLv)
-        print(nXLv.shape)
-        self.plot_V(nXLv, top=5, step=step, ax=ax[0])
-        nXSv = cp.asnumpy(XSv)
-        self.plot_V(nXSv, top=5, step=step, ax=ax[1])
-
-
     def pcp_transform(self, MLv, MSv, NLv, NSv, out=0):
-        self.pcp20 = cp.vstack([MLv[:5],MSv,NLv[:5],NSv])
-        flux20 = cp.dot(self.flux, self.pcp20.T)
+        pcp20 = cp.vstack([MLv[:5],MSv,NLv[:5],NSv])
+        flux20 = cp.dot(self.flux, pcp20.T)
         nflux20 = cp.asnumpy(flux20)
-        npcp20 = cp.asnumpy(pcp20)
         for i in range(20):
             self.dfpara[f"p{i}"] = nflux20[:,i]
         if out:
-            return nflux20, npcp20
+            return nflux20
 
 # PCP20_PATH = '/scratch/ceph/szalay/swei20/AE/PCP_FLUX_LL20.h5'
-    def save_PCP(self, PCP20_PATH, nflux20, npcp20):
+    def save_pcp_flux(self, PCP20_PATH, nflux20):
         with h5py.File(PCP20_PATH, 'w') as f:
-            f.create_dataset("flux", data=nflux20, shape=nflux20.shape)
-            f.create_dataset("pcp", data=npcp20.values, shape=npcp20.shape)
-            f.create_dataset("wave", data=nwave, shape=nwave.shape)
-            f.create_dataset("para", data=self.dfpara.values, shape=self.dfpara.shape)
-
-
+            f.create_dataset("flux20", data=nflux20, shape=nflux20.shape)
 
 #         with h5py.File(PCP20_PATH, 'r') as f:
 #             flux20 = f["flux20"][()]
 #             para = f["para"][()]
-######################################## M LS #######################################
+# ####################################### M LS #######################################
+    
+
+
+    # def get_flux_stats(self, flux=None):
+    #     flux = flux or self.flux
+    #     # return cp.max(cp.sum(cp.abs(self.flux), axis=1)), cp.sum(self.flux**2)**0.5
+    #     l1_inf = cp.max(cp.abs(self.flux))
+    #     l2 = cp.sum(self.flux ** 2) ** 0.5
+    #     print(f"l1_inf: {l1_inf}, l2: {l2}")
+    #     if self.center:
+    #         self.GCs[self.g] = [l1_inf, l2]
+    #     else:
+    #         self.Gs[self.g] = [l1_inf, l2]
+
+
     def p(self, idx1, idx2, para, large=0):
         if large:
             plt.figure(figsize=(8,6), facecolor="w")
@@ -364,6 +379,24 @@ class DataLoader(object):
         handles, labels = ax.get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
         ax.legend(by_label.values(), by_label.keys())
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   
 ####################################### SAVE #######################################
 # PCP_PATH = '/scratch/ceph/szalay/swei20/AE/PCP_LL.h5'
 
@@ -383,4 +416,6 @@ def save_N(self, PCP_PATH, NL, NS, NLv, NSv):
         f.create_dataset("NS", data=cp.asnumpy(NS), shape=NS.shape)
         f.create_dataset("NLv", data=cp.asnumpy(NLv), shape=NLv.shape) 
         f.create_dataset("NSv", data=cp.asnumpy(NSv), shape=NSv.shape) 
+
+
 

@@ -3,14 +3,15 @@ import time
 import logging
 import numpy as np
 import cupy as cp
+import h5py
 import pandas as pd
-# from scipy.sparse.linalg import svds
+import seaborn as sns
 from scipy.signal import find_peaks
+from sklearn.ensemble import RandomForestRegressor
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from lv.pcp.pcpc import pcp_cupy
-import h5py
-import seaborn as sns
 
 
 
@@ -35,6 +36,7 @@ class DataLoader(object):
         self.Names = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
         self.flux = None
         self.wave = None
+        self.para = None
 
         self.mask = None
         self.nmask = None
@@ -46,6 +48,20 @@ class DataLoader(object):
         self.Nv = None
         self.Mw = None
         self.Nw = None
+        self.MLv = None
+        self.NLv = None
+        self.MSv = None
+        self.NSv = None
+        self.Xv = None
+        self.Xname = None
+        self.pcpM = None
+        self.pcpN = None
+        self.pcpFlux = None
+
+        self.nXv = None
+        self.npcpFlux = None
+
+
 
         self.cmap="YlGnBu"
         self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "gist_rainbow", "O":"winter"}
@@ -60,6 +76,7 @@ class DataLoader(object):
         self.nwave = wave        
         index = self.get_flux_in_Prange(para, fix_CO=fix_CO)
         flux  = flux[index]
+
 
         # flux, wave = self.get_flux_in_Wrange(flux, wave)
         print(f"Cupy flux: {self.flux.shape[0]}, wave: {len(self.nwave)}")
@@ -84,6 +101,7 @@ class DataLoader(object):
         maskL = (dfpara["L"] >= Ls[0]) & (dfpara["L"] <= Ls[1]) 
         mask = maskF & maskT & maskL
         self.dfpara = dfpara[mask]
+        self.para = np.array(self.dfpara.values, dtype=np.float16)
         return self.dfpara.index
 
     def get_flux_in_Wrange(self, flux, wave):
@@ -115,10 +133,27 @@ class DataLoader(object):
 
     def plot_V(self, nv, top=5, step=0.3, ax=None):
         wave = self.nwave        
-        if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
+        size = top // 5
+        if ax is None: ax = plt.subplots(1, figsize=(16,3 * size),facecolor="w")[1]
         for i in range(min(len(nv),top)):
             ax.plot(wave, nv[i] + step*(i+1))
         self.get_wave_axis(ax=ax)
+
+    def plot_v(self, vs, idx, nidx=None, c=None, ax=None):
+        if nidx is None: nidx = idx
+        if ax is None:
+            ax = plt.subplots(figsize=(16,5))[1]
+        vs = cp.asnumpy(vs)
+        v = vs[idx]
+        ax.plot(self.nwave, v, label=nidx, c=c)
+    
+    def plot_nv(self, nvs, idx, nidx=None, c="k", ax=None, fineW=1):
+        if nidx is None: nidx = idx
+        if ax is None:
+            ax = plt.subplots(figsize=(16,1))[1]
+        v = nvs[idx]
+        ax.plot(self.nwave, v, label=nidx, c=c)
+        if fineW: self.get_wave_axis(ax=ax)
 
     def init_pcp(self, step=0.3):
         self.v = self.get_eigv(self.flux, top=200, out_w=False)
@@ -224,7 +259,8 @@ class DataLoader(object):
 ####################################### PCP #######################################
     def _pcp(self, X, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):
         XL, XS, (_,_,XLv) = pcp_cupy(X, delta=delta, mu=mu, lam=lam, norm=norm, maxiter=maxiter)
-        XSv = self.get_eigv(XS, top = 5)
+        XSv = self.get_eigv(XS, top = 30)
+        print(f"L{XLv.shape}, S{XSv.shape}")
         return XL, XS, XLv, XSv
 
     def eval_pcp(self, XLv, XSv, isM=1, step=0.3, ax=None):
@@ -236,17 +272,54 @@ class DataLoader(object):
         self.plot_V(nXLv, top=5, step=step, ax=ax[0])
         nXSv = cp.asnumpy(XSv)
         self.plot_V(nXSv, top=5, step=step, ax=ax[1])
+        return nXLv, nXSv
+
+    def pcp_transform(self, MLv, MSv, NLv, NSv, top=15):
+        MLv, MSv, NLv, NSv = MLv[:top], MSv[:top], NLv[:top], NSv[:top] 
+        Mvs = cp.vstack((MLv, MSv))
+        self.pcpM = cp.dot(self.M, Mvs.T)
+        Nvs = cp.vstack((NLv, NSv))
+        self.pcpN = cp.dot(self.N, Nvs.T)
+        self.pcpFlux = cp.hstack((self.pcpM, self.pcpN))
+        self.MLv = self.get_xv(MLv, isM=1)
+        self.MSv = self.get_xv(MSv, isM=1)
+        self.NLv = self.get_xv(NLv, isM=0)
+        self.NSv = self.get_xv(NSv, isM=0)
+        self.Xv = cp.vstack((self.MLv, self.MSv, self.NLv, self.NSv))
+        self.Xname = self.get_Xname(top)
+
+    def get_Xname(self, top=15):
+        name = []
+        for X in ["M", "N"]:
+            for XX in ["L", "S"]:
+                name += [f"{X}{XX}{i}" for i in range(top)]
+        return name
+
+    def pcp_np(self):
+        self.nXv = cp.asnumpy(self.Xv)
+        self.npcpFlux = cp.asnumpy(self.pcpFlux)
 
 
-    def pcp_transform(self, MLv, MSv, NLv, NSv, out=0):
-        self.pcp20 = cp.vstack([MLv[:5],MSv,NLv[:5],NSv])
-        flux20 = cp.dot(self.flux, self.pcp20.T)
-        nflux20 = cp.asnumpy(flux20)
-        npcp20 = cp.asnumpy(pcp20)
+        
+
+    def pcp_ntransform(self, MLv, MSv, NLv, NSv, out=0):
+        self.npcp20 = np.vstack([MLv[:5],MSv,NLv[:5],NSv])
+        flux = cp.asnumpy(self.flux)
+        nflux20 = np.dot(flux, self.pcp20.T)
         for i in range(20):
             self.dfpara[f"p{i}"] = nflux20[:,i]
         if out:
             return nflux20, npcp20
+
+    # def pcp_transform(self, MLv, MSv, NLv, NSv, out=0):
+    #     self.pcp20 = cp.vstack([MLv[:5],MSv,NLv[:5],NSv])
+    #     flux20 = cp.dot(self.flux, self.pcp20.T)
+    #     nflux20 = cp.asnumpy(flux20)
+    #     npcp20 = cp.asnumpy(pcp20)
+    #     for i in range(20):
+    #         self.dfpara[f"p{i}"] = nflux20[:,i]
+    #     if out:
+    #         return nflux20, npcp20
 
 # PCP20_PATH = '/scratch/ceph/szalay/swei20/AE/PCP_FLUX_LL20.h5'
     def save_PCP(self, PCP20_PATH, nflux20, npcp20):
@@ -272,6 +345,9 @@ class DataLoader(object):
         sns.scatterplot(
             data=self.dfpara,x=f"p{idx1}", y=f"p{idx2}", hue=para, marker="o", s=s, edgecolor="none",palette=self.color[para])
         plt.title(self.name)
+
+    def prf(self, idx1, idx2, para, large=0):
+        plt.scatter(self.npcpFlux[:, idx1], self.npcpFlux[:,idx2], c=self.dfpara[para], marker=".", s=5, edgecolor="none", cmap=self.color[para])
 
     def pp(self, idx, para):
         sns.pairplot(
@@ -333,7 +409,7 @@ class DataLoader(object):
         self.lick = dBands
         self.lick_color = cBands
 
-    def plot_lick(self, ax=None):
+    def plot_lick(self, ax=None, fineW=1):
         ax = ax or plt.subplots(figsize=(16,2))[1]
         # ax.grid(True)
         ax.set_ylim(0, 1)
@@ -347,18 +423,18 @@ class DataLoader(object):
     #         ax.vlines(vals, -l_max, 0, color = next(color), label = key, linewidth = 2)
 
         self.set_unique_legend(ax)
-        self.get_wave_axis(ax=ax,)
+        if fineW: self.get_wave_axis(ax=ax,)
         # self.set_wv_ticks(ax, lim=True)
         # ax.set_ylabel('LICK')
+    def plot_O(self, x, c="r",ls=":", ax=None):
+        ax = ax or plt.gca()
+        if x // 1000 == 8:
+            ax.axvline(8448.57, c=c, linestyle=ls, label="O I")
+        elif x // 1000 == 7:
+            ax.axvline(7777.53, c=c, linestyle=ls, label="O I")
+        ax.legend()
 
-    def plot_v(self, vs, idx, nidx=None, c=None, ax=None):
-        if nidx is None: nidx = idx
-        if ax is None:
-            ax = plt.subplots(figsize=(16,5))[1]
-        vs = cp.asnumpy(vs)
-        v = vs[idx]
-        ax.plot(self.nwave, v, label=nidx, c=c)
-        
+
 
     def set_unique_legend(self, ax):
         handles, labels = ax.get_legend_handles_labels()

@@ -60,6 +60,7 @@ class DataLoader(object):
 
         self.nXv = None
         self.npcpFlux = None
+        self.pnames = ["F","T","L","C","O"]
 
 
 
@@ -79,7 +80,7 @@ class DataLoader(object):
 
 
         # flux, wave = self.get_flux_in_Wrange(flux, wave)
-        print(f"Cupy flux: {self.flux.shape[0]}, wave: {len(self.nwave)}")
+        print(f"flux: {flux.shape[0]}, wave: {len(self.nwave)}")
         self.name = f"{self.Names[P]} in {W}"
 
         #gpu only
@@ -295,9 +296,21 @@ class DataLoader(object):
                 name += [f"{X}{XX}{i}" for i in range(top)]
         return name
 
-    def pcp_np(self):
+    def pcp_np(self, save=0):
         self.nXv = cp.asnumpy(self.Xv)
         self.npcpFlux = cp.asnumpy(self.pcpFlux)
+        if save:
+            PATH= "/scratch/ceph/swei20/data/dnn/BHB/bosz_pcp.h5"
+            self.save_dnn_pcp(PATH)
+
+    def save_dnn_pcp(self, DNN_PCP_PATH):
+        ww = self.W[3][:1]
+        with h5py.File(DNN_PCP_PATH, 'a') as f:
+            f.create_dataset(f"flux{ww}", data=self.npcpFlux, shape=self.npcpFlux.shape)
+            f.create_dataset(f"pcp{ww}", data=self.nXv, shape=self.nXv.shape)
+            f.create_dataset(f"para{ww}", data=self.dfpara.values, shape=self.dfpara.shape)
+            f.create_dataset(f"pc{ww}", data=self.nv, shape=self.nv.shape)
+
 
 
         
@@ -335,23 +348,25 @@ class DataLoader(object):
 #             flux20 = f["flux20"][()]
 #             para = f["para"][()]
 ######################################## M LS #######################################
-    def p(self, idx1, idx2, para, large=0):
+    def p(self, idx1, idx2, para, large=0, data=None):
         if large:
             plt.figure(figsize=(8,6), facecolor="w")
             s=5
         else:
             plt.figure(figsize=(6,4), facecolor="w")
             s=3
+        if data is None: data = self.dfpara
         sns.scatterplot(
-            data=self.dfpara,x=f"p{idx1}", y=f"p{idx2}", hue=para, marker="o", s=s, edgecolor="none",palette=self.color[para])
+            data=data,x=f"p{idx1}", y=f"p{idx2}", hue=para, marker="o", s=s, edgecolor="none",palette=self.color[para])
         plt.title(self.name)
 
     def prf(self, idx1, idx2, para, large=0):
         plt.scatter(self.npcpFlux[:, idx1], self.npcpFlux[:,idx2], c=self.dfpara[para], marker=".", s=5, edgecolor="none", cmap=self.color[para])
 
-    def pp(self, idx, para):
+    def pp(self, idx, para, data=None):
+        if data is None: data = self.dfpara
         sns.pairplot(
-            self.dfpara,
+            data,
             x_vars=self.ps[idx],
             y_vars=self.ps[idx],
             hue=para,

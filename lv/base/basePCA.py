@@ -8,7 +8,6 @@ import pandas as pd
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
-from lv.pcp.pcpc import pcp_cupy
 import h5py
 from tqdm import tqdm
 import seaborn as sns
@@ -49,6 +48,8 @@ class PCA(object):
         self.Nms = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
         self.Flux = {}
         self.nFlux = {}
+        self.pcFlux = {}
+        self.npcFlux = {}
         self.Size = {}
         self.Vs = {}
         self.nVs = {}
@@ -74,9 +75,9 @@ class PCA(object):
         self.lick = None
 
 ####################################### Flux #####################################
-    def prepare_data(self, W, flux, wave, para, fix_CO=False):
-        self.W = self.Ws[W]
+    def prepare_data(self, flux, wave, para, W=None, fix_CO=False):
         # flux = np.clip(-flux, 0.0, None)
+        if W is not None: self.W = self.Ws[W]
         self.nwave = wave        
 
         for p, pvals in self.Ps.items():
@@ -87,17 +88,24 @@ class PCA(object):
             self.Size[p] = flux_p.shape[0]
             print(f"# {p} flux: {self.Size[p]}, wave {W}: {wave.shape} ")
 
-    def prepare_svd(self):
+    def prepare_svd(self, top=200):
         #gpu only
         for p, flux_p in self.nFlux.items():
             self.Flux[p] = cp.asarray(flux_p, dtype=cp.float32)
         self.wave = cp.asarray(self.nwave, dtype=cp.float32)
 
         for p, flux_p in tqdm(self.Flux.items()):
-            Vs = self.get_eigv(flux_p, top=5)
-
+            Vs = self.get_eigv(flux_p, top=200)
             self.Vs[p] = Vs
+            self.pcFlux[p] = self.Flux[p].dot(Vs.T)
+            self.npcFlux[p] = cp.asnumpy(self.pcs[p])
             self.nVs[p] = cp.asnumpy(Vs)
+
+    def save_PCA(self, PATH):
+        with h5py.File(PATH, "w") as f:
+            for p, nV in self.nVs.items():
+                f.create_dataset(f"pc{p}", data=nV, shape=nV.shape)
+                f.create_dataset(f"pcFlux{p}", data=self.npcFlux[p], shape=self.npcFlux[p].shape)
 
     def get_flux_in_Prange(self, para, p, fix_CO=True):
         Fs, Ts, Ls = p
@@ -264,61 +272,11 @@ class PCA(object):
             self.plot_V(Nv, top=5, step=step, ax=ax[1])
             ax[1].vlines(self.nwave[~mask], ymin=-self.pMaxs * 0.2, ymax=0.0, color="g", alpha=0.3)
 ####################################### PCP #######################################
-    def _pcp(self, X, delta=1e-6, mu=None, lam=None, norm=None, maxiter=50):
-        XL, XS, (_,_,XLv) = pcp_cupy(X, delta=delta, mu=mu, lam=lam, norm=norm, maxiter=maxiter)
-        XSv = self.get_eigv(XS, top = 5)
-        return XL, XS, XLv, XSv
-
-    def get_pcp(self, maxiter=1):
-        for i, (p, M) in enumerate(self.Ms.items()):
-            self.ML[p], self.MS[p], self.MLv[p], self.MSv[p] = self._pcp(M, maxiter=maxiter)
-            print(self.Nms[p], "L", self.MLv[p].shape)
-
-    def plot_LSs(self,step=0.3):
-        f, axs = plt.subplots(6,2, figsize=(30,18),facecolor="w")
-        for i, (p, mask) in enumerate(self.nMsks.items()):
-            ax = axs[i]
-            MLv = cp.asnumpy(self.MLv[p])
-            self.plot_V(MLv, top=5, step=step, ax=ax[0])
-            ax[0].vlines(self.nwave[mask], ymin=0.0, ymax=self.pMaxs * 0.2, color="r", alpha=0.3)
-            ax[0].set_ylabel(f"{self.Nms[p]}")
-    
-            MSv = cp.asnumpy(self.MSv[p])
-            self.plot_V(MSv, top=5, step=step, ax=ax[1])
-            ax[1].vlines(self.nwave[mask], ymin=0.0, ymax=self.pMaxs * 0.2, color="r", alpha=0.3)
-
-    def pcp_transform(self, MLv, MSv, NLv, NSv, out=0):
-        pcp20 = cp.vstack([MLv[:5],MSv,NLv[:5],NSv])
-        flux20 = cp.dot(self.flux, pcp20.T)
-        nflux20 = cp.asnumpy(flux20)
-        for i in range(20):
-            self.dfpara[f"p{i}"] = nflux20[:,i]
-        if out:
-            return nflux20
 
 # PCP20_PATH = '/scratch/ceph/szalay/swei20/AE/PCP_FLUX_LL20.h5'
     def save_pcp_flux(self, PCP20_PATH, nflux20):
         with h5py.File(PCP20_PATH, 'w') as f:
             f.create_dataset("flux20", data=nflux20, shape=nflux20.shape)
-
-#         with h5py.File(PCP20_PATH, 'r') as f:
-#             flux20 = f["flux20"][()]
-#             para = f["para"][()]
-# ####################################### M LS #######################################
-    
-
-
-    # def get_flux_stats(self, flux=None):
-    #     flux = flux or self.flux
-    #     # return cp.max(cp.sum(cp.abs(self.flux), axis=1)), cp.sum(self.flux**2)**0.5
-    #     l1_inf = cp.max(cp.abs(self.flux))
-    #     l2 = cp.sum(self.flux ** 2) ** 0.5
-    #     print(f"l1_inf: {l1_inf}, l2: {l2}")
-    #     if self.center:
-    #         self.GCs[self.g] = [l1_inf, l2]
-    #     else:
-    #         self.Gs[self.g] = [l1_inf, l2]
-
 
     def p(self, idx1, idx2, para, large=0):
         if large:

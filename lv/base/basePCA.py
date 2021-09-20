@@ -98,7 +98,7 @@ class PCA(object):
             Vs = self.get_eigv(flux_p, top=200)
             self.Vs[p] = Vs
             self.pcFlux[p] = self.Flux[p].dot(Vs.T)
-            self.npcFlux[p] = cp.asnumpy(self.pcs[p])
+            self.npcFlux[p] = cp.asnumpy(self.pcFlux[p])
             self.nVs[p] = cp.asnumpy(Vs)
 
     def save_PCA(self, PATH):

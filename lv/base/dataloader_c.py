@@ -148,13 +148,31 @@ class DataLoader(object):
         v = vs[idx]
         ax.plot(self.nwave, v, label=nidx, c=c)
     
-    def plot_nv(self, nvs, idx, nidx=None, c="k", ax=None, fineW=1):
+    def plot_nvs(self, nvs, idxs, nidxs=None, c="k", ax=None, fineW=0):
+        if nidxs is None: nidxs = idxs
+        n = len(idxs)
+        f, axs = plt.subplots(n,1, figsize=(16,2*n))
+        for i in range(n):
+            ax = axs[i]
+            nv = nvs[idxs[i]]
+            nidx = nidxs[idxs[i]]
+            ax.plot(self.nwave, nv, label=nidx, c=c)
+            if not fineW: 
+                self.get_wave_axis(ax=ax)
+            else:
+                ax.xaxis.grid(1)
+            ax.legend(loc=1)
+
+    def plot_nv(self, nvs, idx, nidx=None, c="k", ax=None, fineW=0):
         if nidx is None: nidx = idx
         if ax is None:
             ax = plt.subplots(figsize=(16,1))[1]
         v = nvs[idx]
         ax.plot(self.nwave, v, label=nidx, c=c)
-        if fineW: self.get_wave_axis(ax=ax)
+        if not fineW: 
+            self.get_wave_axis(ax=ax)
+        else:
+            ax.xaxis.grid(1)
 
     def init_pcp(self, step=0.3):
         self.v = self.get_eigv(self.flux, top=200, out_w=False)
@@ -162,9 +180,12 @@ class DataLoader(object):
         self.plot_V(self.nv, step=step)
         plt.ylabel(self.name)
 ####################################### Mask #######################################
-    def plot_mask(self, mask, ymin=0, ymax=0.3, c='r', lw=0.2, ax=None):
-        ax = ax or plt.gca()
+    def plot_mask(self, mask, ymin=0, ymax=0.1, c='r', lw=1, ax=None, fineW=0):
+        ax = ax or plt.subplots(figsize=(16,1))[1]
         ax.vlines(self.nwave[mask], ymin=ymin, ymax=ymax, color=c, lw=lw)
+        if not fineW: self.get_wave_axis(ax=ax)
+
+
 
     def plot_mask_below(self, isM=1, large=0, ax=None):
         ymin = -self.pmax ** 0.5 if large else -self.pmax*0.1

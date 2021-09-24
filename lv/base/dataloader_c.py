@@ -89,6 +89,10 @@ class DataLoader(object):
         self.flux = cp.clip(-flux, 0.0, None)
         self.wave = wave
         self.nw = len(wave)
+
+    def get_LL(self):            
+        df = pd.read_csv(f"/scratch/ceph/szalay/swei20/LL/kurucz/gfall_vac_{self.W[3]}.csv")
+        return df
     
     def get_flux_in_Prange(self, para, fix_CO=True):
         Fs, Ts, Ls = self.P
@@ -163,10 +167,10 @@ class DataLoader(object):
                 ax.xaxis.grid(1)
             ax.legend(loc=1)
 
-    def plot_nv(self, nvs, idx, nidx=None, c="k", ax=None, fineW=0):
+    def plot_nv(self, nvs, idx, nidx=None, c="k", ax=None, fineW=0, fs=1):
         if nidx is None: nidx = idx
         if ax is None:
-            ax = plt.subplots(figsize=(16,1))[1]
+            ax = plt.subplots(figsize=(16,fs))[1]
         v = nvs[idx]
         ax.plot(self.nwave, v, label=nidx, c=c)
         if not fineW: 
@@ -472,10 +476,13 @@ class DataLoader(object):
 
 
 
-    def set_unique_legend(self, ax):
+    def set_unique_legend(self, ax, fix_ncol=1, loc="upper right"):
         handles, labels = ax.get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
-        ax.legend(by_label.values(), by_label.keys())
+        vals = by_label.values()
+        if not fix_ncol:
+            nn = len(vals) // 2
+            ax.legend(vals, by_label.keys(), ncol=nn, loc=loc)
 ####################################### SAVE #######################################
 # PCP_PATH = '/scratch/ceph/szalay/swei20/AE/PCP_LL.h5'
 

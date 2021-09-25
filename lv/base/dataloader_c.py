@@ -22,18 +22,20 @@ class DataLoader(object):
         self.Ws = {"Blue": [3800, 6500, 2300, "Blue"], "RedL": [6300, 9700, 3000, "RedL"], "RedM": [7100, 8850, 5000, "RedM"],
                    "NIR": [9400, 12600, 4300, "NIR"]}
 
-        self.Ps = { "M": [[-2.5, 0.0], [3500, 5000], [0.0, 2.0],[-0.75, 0.5], [-0.25, 0.5]], 
+        self.Rs = { "M": [[-2.5, 0.0], [3500, 5000], [0.0, 2.0],[-0.75, 0.5], [-0.25, 0.5]], 
                     "W": [[-2.0, 0.0], [5500, 7500], [3.5, 5.0],[-0.75, 0.5], [-0.25, 0.5]],
                     "C": [[-2.0, 0.0], [4500, 6000], [4.0, 5.0],[-0.75, 0.5], [-0.25, 0.5]], 
                     "B": [[-2.5,-1.5], [7000, 9500], [2.0, 3.0],[-0.75, 0.5], [-0.25, 0.5]],
                     "R": [[-1.0, 0.0], [5000, 6500], [2.0, 3.0],[-0.75, 0.5], [-0.25, 0.5]], 
                     "G": [[-2.5,-1.0], [3500, 5500], [0.0, 3.5],[-0.75, 0.5], [-0.25, 0.5]]}
         self.W = None
+        self.R = None
         self.nw = None
-        self.P = None
         self.v = None
         self.nv = None
-        self.Names = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
+        self.RNms = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
+        self.PNms = ["[M/H]", "Teff", "Logg", "[C/M]", "[a/M]"]
+        self.Fs = None
         self.flux = None
         self.wave = None
         self.para = None
@@ -60,10 +62,6 @@ class DataLoader(object):
 
         self.nXv = None
         self.npcpFlux = None
-        self.pnames = ["F","T","L","C","O"]
-
-
-
         self.cmap="YlGnBu"
         self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "gist_rainbow", "O":"winter"}
         self.ps =  [["p0","p1", "p2", "p3", "p4"],["p5","p6", "p7", "p8", "p9"],["p10","p11", "p12", "p13", "p14"],["p15","p16", "p17", "p18", "p19"]]
@@ -71,9 +69,9 @@ class DataLoader(object):
         self.lick = None
 
 ################################ Flux Wave #####################################
-    def prepare_data(self, W, P, flux, wave, para, fix_CO=False):
+    def prepare_data(self, W, R, flux, wave, para, fix_CO=False):
         self.W = self.Ws[W]
-        self.P = self.Ps[P]
+        self.R = self.Rs[R]
         self.nwave = wave        
         index = self.get_flux_in_Prange(para, fix_CO=fix_CO)
         flux  = flux[index]
@@ -81,7 +79,7 @@ class DataLoader(object):
 
         # flux, wave = self.get_flux_in_Wrange(flux, wave)
         print(f"flux: {flux.shape[0]}, wave: {len(self.nwave)}")
-        self.name = f"{self.Names[P]} in {W}"
+        self.name = f"{self.RNms[R]} in {W}"
 
         #gpu only
         flux = cp.asarray(flux, dtype=cp.float32)
@@ -95,7 +93,7 @@ class DataLoader(object):
         return df
     
     def get_flux_in_Prange(self, para, fix_CO=True):
-        Fs, Ts, Ls = self.P
+        Fs, Ts, Ls = self.R
         dfpara = self.init_para(para)
         if fix_CO:
             dfpara = dfpara[(dfpara["O"] == 0.0)]
@@ -144,6 +142,16 @@ class DataLoader(object):
             ax.plot(wave, nv[i] + step*(i+1))
         self.get_wave_axis(ax=ax)
 
+    def plot_IV(self, sdx, top=5, step=0.3, ax=None):
+        size = top // 5
+        if ax is None: ax = plt.subplots(1, figsize=(16,4 * size),facecolor="w")[1]
+        nv = np.abs(self.nXv[sdx])
+        nm = [self.Xname[s] for s in sdx]
+        for i in range(min(len(nv),top)):
+            ax.plot(self.nwave, nv[i] + step*(i+1), c="k") #lw=2, label=nm[i])
+        # self.get_wave_axis(ax=ax, xgrid=0)
+
+
     def plot_v(self, vs, idx, nidx=None, c=None, ax=None):
         if nidx is None: nidx = idx
         if ax is None:
@@ -153,7 +161,7 @@ class DataLoader(object):
         ax.plot(self.nwave, v, label=nidx, c=c)
     
     def plot_nvs(self, nvs, idxs, nidxs=None, c="k", ax=None, fineW=0):
-        if nidxs is None: nidxs = idxs
+        if nidxs is None: nidxs = self.Xname
         n = len(idxs)
         f, axs = plt.subplots(n,1, figsize=(16,2*n))
         for i in range(n):
@@ -166,6 +174,7 @@ class DataLoader(object):
             else:
                 ax.xaxis.grid(1)
             ax.legend(loc=1)
+
 
     def plot_nv(self, nvs, idx, nidx=None, c="k", ax=None, fineW=0, fs=1):
         if nidx is None: nidx = idx
@@ -321,11 +330,11 @@ class DataLoader(object):
                 name += [f"{X}{XX}{i}" for i in range(top)]
         return name
 
-    def pcp_np(self, save=0):
+    def pcp_np(self, PATH=None, save=0):
         self.nXv = cp.asnumpy(self.Xv)
         self.npcpFlux = cp.asnumpy(self.pcpFlux)
         if save:
-            PATH= "/scratch/ceph/swei20/data/dnn/BHB/bosz_pcp.h5"
+            if PATH is None: PATH= "/scratch/ceph/swei20/data/dnn/BHB/bosz_pcp.h5"
             self.save_dnn_pcp(PATH)
 
     def save_dnn_pcp(self, DNN_PCP_PATH):
@@ -336,9 +345,6 @@ class DataLoader(object):
             f.create_dataset(f"para{ww}", data=self.dfpara.values, shape=self.dfpara.shape)
             f.create_dataset(f"pc{ww}", data=self.nv, shape=self.nv.shape)
 
-
-
-        
 
     def pcp_ntransform(self, MLv, MSv, NLv, NSv, out=0):
         self.npcp20 = np.vstack([MLv[:5],MSv,NLv[:5],NSv])
@@ -366,6 +372,26 @@ class DataLoader(object):
             f.create_dataset("pcp", data=npcp20.values, shape=npcp20.shape)
             f.create_dataset("wave", data=nwave, shape=nwave.shape)
             f.create_dataset("para", data=self.dfpara.values, shape=self.dfpara.shape)
+
+
+
+    def get_Mrf(self, pdx=1, fdx=None, top=20):
+        rf = RandomForestRegressor(max_depth=50, random_state=0, n_estimators=100, max_features=30)
+        if fdx is None: 
+            data = self.npcpFlux[:,:40]
+        else:
+            data = self.npcpFlux[:,fdx]
+        rf.fit(data, self.para[:, pdx])
+        sdx = rf.feature_importances_.argsort()[::-1]
+        self.Fs[pdx] = sdx
+        self.plot_rf(rf, sdx[:top], log=1)
+        plt.title(f"feature importance for {self.PNms[pdx]}")
+
+    def plot_rf(self, rf, sdx, log=1):
+        plt.figure(figsize=(16,1), facecolor="w")
+        plt.bar([self.Xname[sdx[i]] for i in range(len(sdx))], rf.feature_importances_[sdx], log=log)
+        # plt.title(f"feature importance for {}")
+
 
 
 

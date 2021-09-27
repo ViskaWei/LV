@@ -19,7 +19,7 @@ class KLine():
         self.dfLL26 = None 
 
         self.load_LL()
-        # self.get_SLs()
+        self.get_SLs()
 
     def load_LL(self):
         dfLL = pd.read_csv(f"/scratch/ceph/szalay/swei20/LL/kurucz/gfall_vac_{self.W[3]}.csv")

@@ -12,7 +12,7 @@ from sklearn.ensemble import RandomForestRegressor
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from lv.pcp.pcpc import pcp_cupy
-
+from lv.base.baseLL import KLine
 
 
 
@@ -67,6 +67,15 @@ class DataLoader(object):
         self.ps =  [["p0","p1", "p2", "p3", "p4"],["p5","p6", "p7", "p8", "p9"],["p10","p11", "p12", "p13", "p14"],["p15","p16", "p17", "p18", "p19"]]
         self.name = None
         self.lick = None
+        self.l = None
+        self.AL = None
+
+################################ Flux Wave #####################################
+    def prepare_lines(self):
+        self.l=KLine(self.W[3])
+        self.AL = pd.read_csv("../data/Klines.csv")
+
+
 
 ################################ Flux Wave #####################################
     def prepare_data(self, W, R, flux, wave, para, fix_CO=False):
@@ -75,8 +84,6 @@ class DataLoader(object):
         self.nwave = wave        
         index = self.get_flux_in_Prange(para, fix_CO=fix_CO)
         flux  = flux[index]
-
-
         # flux, wave = self.get_flux_in_Wrange(flux, wave)
         print(f"flux: {flux.shape[0]}, wave: {len(self.nwave)}")
         self.name = f"{self.RNms[R]} in {W}"
@@ -218,8 +225,21 @@ class DataLoader(object):
         if nv is None: nv = self.nv
         mask, nvv = self.get_mask_from_nv(nv, k=k, q=q)   
         nvv[~mask]  = 0.0
-        peaks, prop = find_peaks(nvv, prominence=(prom, None))
+        peaks, prop = self.find_peaks(nvv, prom)
         return peaks, prop, nvv
+
+    def find_peak(self, nv, prom):
+        peaks, prop = find_peaks(nv, prominence=(prom, None))
+        return peaks, prop
+
+    def plot_peak(self, nv, peaks, prom):
+        ax = plt.subplots(figsize=(16,1))[1]
+        ax.plot(self.nwave, nv, c="k")
+        ax.plot(self.nwave[peaks], nv[peaks],"bx", markersize=10, label=f"prominence={prom}")
+        self.get_wave_axis(ax=ax)
+
+    def plot_peak_Z(self, peaks, Zs):
+        pass
 
     def plot_peaks(self, nvv, peaks, k, prom, ax=None):
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]

@@ -232,14 +232,69 @@ class DataLoader(object):
         peaks, prop = find_peaks(nv, prominence=(prom, None))
         return peaks, prop
 
-    def plot_peak(self, nv, peaks, prom):
-        ax = plt.subplots(figsize=(16,1))[1]
-        ax.plot(self.nwave, nv, c="k")
-        ax.plot(self.nwave[peaks], nv[peaks],"bx", markersize=10, label=f"prominence={prom}")
-        self.get_wave_axis(ax=ax)
+    def plot_rfPC(self, pdx=0,top=10, rng=None):
+        f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
+        if top ==1: axs=[axs]
+        for vdx in range(top):
+            ax=axs[vdx]
+            self.get_wave_axis(wave=rng, ax=ax)
 
-    def plot_peak_Z(self, peaks, Zs):
-        pass
+            PC = self.nXv[self.Fs[pdx][vdx]]
+            PCN = self.Xname[self.Fs[pdx][vdx]]
+            self.plot_rfPC_v(PC,PCN, ax=ax)
+
+    def plot_rfPC_v(self, PC, PCN, prom=0.1, ax=None):
+        peaks, prop = self.find_peak(abs(PC), prom)
+        self.plot_peak_Z(PC,PCN, peaks,prop, ax=ax )
+
+    def plot_peak_Z(self, nv, nv_name, peaks, prop, ax=None):
+        if ax is None: ax = plt.subplots(figsize=(16,1))[1]
+        ax.plot(self.nwave, abs(nv), c="k", label=nv_name)
+        for (pval,Y,W,ZN) in self.get_peaks_Z(peaks,prop):
+            self.plot_peak_from_PYWZ(pval,Y,W,ZN, ax=ax)
+        ax.legend()
+
+
+    def plot_peak_from_PYWZ(self, pval,Y,W,ZN, ax=None):
+        if ax is None: ax = plt.subplots(figsize=(16,1))[1]
+        ax.plot(pval, Y,"bx", markersize=10)
+        ax.vlines(W, ymin=1.1*Y, ymax=3.*Y, color="r")
+        ax.annotate(f"{ZN}", (W+0.1, 2.5*Y),color="r")
+
+    def get_WZ_from_PY(self, pval, Y):
+        try:
+            KL = self.AL
+            dfP = KL[(KL["W"] > pval-2) & (KL["W"] < pval+2)]
+            assert (len(dfP) == 1)
+            ZN = dfP.iloc[0]["Z"]
+            W = dfP.iloc[0]["W"]
+        except:
+            try:
+                KL = self.l.dfSL
+                dfP = KL[(KL["W"] > pval-2) & (KL["W"] < pval+2)]
+                assert(len(dfP) > 0)
+                II= dfP["I"].mode()
+                if len(II) > 1:
+                    dfP = dfP[dfP["I"]==II.max()]
+                else:                    
+                    dfP = dfP[dfP["I"]==II.values[0]]
+                W = dfP["W"].mean()
+                Z = dfP["Z"].unique()
+            except:
+                KL = self.l.dfLL
+                dfP = KL[(KL["W"] > pval-2) & (KL["W"] < pval+2)]
+                assert(len(dfP) > 0)
+                W,_,Z,_ = dfP.iloc[dfP["I"].argmax()].values        
+            ZN = self.l.ZNms[int(Z)]
+        return W, ZN
+
+    def get_peaks_Z(self, peaks, prop):
+        for ii, peak in enumerate(peaks):
+            pval = self.nwave[peak]
+            Y = prop["prominences"][ii]
+            W, ZN = self.get_WZ_from_PY(pval, Y)
+            yield pval, Y, W, ZN
+
 
     def plot_peaks(self, nvv, peaks, k, prom, ax=None):
         if ax is None: ax = plt.subplots(1, figsize=(16,3),facecolor="w")[1]
@@ -274,7 +329,8 @@ class DataLoader(object):
             ax.set_xticks(np.arange(self.W[0], self.W[1], 200))  
         else:
             ax.set_xlim(wave[0]-1, wave[-1]+2)
-            ax.set_xticks(np.arange(int(wave[0]), np.ceil(wave[-1]), 200))
+            n = (wave[-1]-wave[0]) // 10
+            ax.set_xticks(np.arange(int(wave[0]), np.ceil(wave[-1]), n))
         ax.xaxis.grid(xgrid)
 
     def plot_MN_mask(self, idx=0, ax=None):

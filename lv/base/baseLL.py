@@ -9,8 +9,14 @@ from collections import OrderedDict
 
 class KLine():
     def __init__(self, w):
-        self.Els = ['0', 'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl',
-                        'Ar', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe']
+        self.ZNms = ['','H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 
+                        'Na','Mg', 'Al', 'Si', 'P', 'S', 'Cl','Ar', 'K', 'Ca', 
+                        'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se',
+                        'Br', 'Kr','Rb','Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb','Te','I'
+                        'Xe','Cs','Ba','La','Ce','Pr','Nd','Pm','Sm','Eu','Gd','Tb','Dy','Ho','Er','Tm','Yb','Lu','Hf','Ta',
+                        'W','Re','Os','Ir','Pt','Au','Hg','Tl','Pb','Bi','Po','At','Rn','Fr','Ra','Ac','Th','Pa','U','Np',
+                        'Pu','Am','Cm','Bk','Cf','Es','Fm','Md','No','Lr','Rf','Db','Sg','Bh','Hs','Mt','Ds','Rg','Cn',
+                        'Uut','Fl','Uup','Lv','Uus','Uuo']
         self.Egs = {"0": [1,11,12,20,26], "1": [1, 8, 12, 20, 26]}
         self.Ws = {"Blue": [3800, 6500, 2300, "Blue"], "RedL": [6300, 9700, 3000, "RedL"], 
                    "RedM": [7100, 8850, 5000, "RedM"], "NIR": [9400, 12600, 4300, "NIR"]}
@@ -35,7 +41,7 @@ class KLine():
         dfI = df.groupby([(df['I'].shift() != df['I']).cumsum()])
         dfII=dfI.size().sort_values(ascending=False)    
         dfII2 = dfII[:np.sum(dfII.reset_index()[0]>lw)]
-        SLs=np.zeros((len(dfII2),4))
+        SLs=np.zeros((len(dfII2),5))
         for ii, (gdx, _) in enumerate(dfII2.items()):
             dfgps=dfI.get_group(gdx)
             w= dfgps["W"].values
@@ -45,7 +51,8 @@ class KLine():
             SLs[ii,1] = w[-1]
             SLs[ii,2] = I
             SLs[ii,3] = Z
-        self.dfSL = pd.DataFrame(SLs, columns=["W0","W1","I","Z"])
+            SLs[ii,4] = 0.5 * (w[0] + w[1])
+        self.dfSL = pd.DataFrame(SLs, columns=["W0","W1","I","Z","W"])
         self.SZs = np.sort(self.dfSL["Z"].unique())
 
     def plot_dfSL(self, dfSL=None, alpha=1):
@@ -142,7 +149,7 @@ class KLine():
         c = cm.gist_rainbow((Z-1)/(27-1))
         if ax is None: ax = plt.subplots(figsize=(20,2))[1]
         for i in range(len(W)):
-            ax.axvline(W[i], color=c[i], label=f"{Z[i]}{self.Els[Z[i]]}", alpha=0.5)
+            ax.axvline(W[i], color=c[i], label=f"{Z[i]}{self.ZNms[Z[i]]}", alpha=0.5)
         ax.set_xlim(rng)
         self.set_unique_legend(ax, fix_ncol=0)
         # return dff

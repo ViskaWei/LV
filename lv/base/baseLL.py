@@ -29,6 +29,7 @@ class KLine():
 
     def load_LL(self):
         dfLL = pd.read_csv(f"/scratch/ceph/szalay/swei20/LL/kurucz/gfall_vac_{self.W[3]}.csv")
+        dfLL = dfLL[dfLL["Z"]<27]
         # self.dfLL = dfLL
         self.dfLL = pd.DataFrame(dfLL[(dfLL["I"]>-3.)].values, columns = dfLL.columns)
         self.dfLL26 = dfLL[(dfLL["Z"] < 27)]

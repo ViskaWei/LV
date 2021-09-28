@@ -36,6 +36,7 @@ class DataLoader(object):
         self.RNms = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
         self.PNms = ["[M/H]", "Teff", "Logg", "[C/M]", "[a/M]"]
         self.Fs = None
+        self.FNs = None
         self.flux = None
         self.wave = None
         self.para = None
@@ -243,6 +244,17 @@ class DataLoader(object):
             PCN = self.Xname[self.Fs[pdx][vdx]]
             self.plot_rfPC_v(PC,PCN, ax=ax)
 
+    def plot_rfPCN(self, pdx=0,top=10, rng=None):
+        f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
+        if top ==1: axs=[axs]
+        for vdx in range(top):
+            ax=axs[vdx]
+            self.get_wave_axis(wave=rng, ax=ax)
+
+            PC = self.nXv[40 + self.FNs[pdx][vdx]]
+            PCN = self.Xname[40 + self.FNs[pdx][vdx]]
+            self.plot_rfPC_v(PC,PCN, ax=ax)
+
     def plot_rfPC_v(self, PC, PCN, prom=0.1, ax=None):
         peaks, prop = self.find_peak(abs(PC), prom)
         self.plot_peak_Z(PC,PCN, peaks,prop, ax=ax )
@@ -257,7 +269,7 @@ class DataLoader(object):
 
     def plot_peak_from_PYWZ(self, pval,Y,W,ZN, ax=None):
         if ax is None: ax = plt.subplots(figsize=(16,1))[1]
-        ax.plot(pval, Y,"bx", markersize=10)
+        # ax.plot(pval, Y,"bx", markersize=10)
         ax.vlines(W, ymin=1.1*Y, ymax=3.*Y, color="r")
         ax.annotate(f"{ZN}", (W+0.1, 2.5*Y),color="r")
 
@@ -449,7 +461,17 @@ class DataLoader(object):
             f.create_dataset("wave", data=nwave, shape=nwave.shape)
             f.create_dataset("para", data=self.dfpara.values, shape=self.dfpara.shape)
 
-
+    def get_Nrf(self, pdx=1, fdx=None, top=20):
+        rf = RandomForestRegressor(max_depth=50, random_state=0, n_estimators=100, max_features=30)
+        if fdx is None: 
+            data = self.npcpFlux[:,40:]
+        else:
+            data = self.npcpFlux[:,fdx]
+        rf.fit(data, self.para[:, pdx])
+        sdx = rf.feature_importances_.argsort()[::-1]
+        self.FNs[pdx] = sdx
+        self.plot_rf(rf, sdx[:top], log=1,N=1)
+        plt.title(f"feature importance for {self.PNms[pdx]}")
 
     def get_Mrf(self, pdx=1, fdx=None, top=20):
         rf = RandomForestRegressor(max_depth=50, random_state=0, n_estimators=100, max_features=30)
@@ -463,9 +485,12 @@ class DataLoader(object):
         self.plot_rf(rf, sdx[:top], log=1)
         plt.title(f"feature importance for {self.PNms[pdx]}")
 
-    def plot_rf(self, rf, sdx, log=1):
+    def plot_rf(self, rf, sdx, log=1, N=0):
         plt.figure(figsize=(16,1), facecolor="w")
-        plt.bar([self.Xname[sdx[i]] for i in range(len(sdx))], rf.feature_importances_[sdx], log=log)
+        if not N:
+            plt.bar([self.Xname[sdx[i]] for i in range(len(sdx))], rf.feature_importances_[sdx], log=log)
+        else:
+            plt.bar([self.Xname[40+ sdx[i]] for i in range(len(sdx))], rf.feature_importances_[sdx][:N], log=log)
         # plt.title(f"feature importance for {}")
 
 

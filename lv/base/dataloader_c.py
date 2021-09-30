@@ -33,10 +33,11 @@ class DataLoader(object):
         self.nw = None
         self.v = None
         self.nv = None
-        self.RNms = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
+        self.RNms = {"M": "M31G", "W": "MWW", "C": "MWC", "B": "BHB", "R": "RHB", "G":"DGG"}
+        self.RNm = None
         self.PNms = ["[M/H]", "Teff", "Logg", "[C/M]", "[a/M]"]
-        self.Fs = None
-        self.FNs = None
+        self.Fs = {}
+        self.FNs = {}
         self.flux = None
         self.wave = None
         self.para = None
@@ -62,6 +63,7 @@ class DataLoader(object):
         self.pcpFlux = None
 
         self.nXv = None
+        self.rfdx = None
         self.npcpFlux = None
         self.cmap="YlGnBu"
         self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "gist_rainbow", "O":"winter"}
@@ -82,6 +84,7 @@ class DataLoader(object):
     def prepare_data(self, W, R, flux, wave, para, fix_CO=False):
         self.W = self.Ws[W]
         self.R = self.Rs[R]
+        self.RNm = self.RNms[R] 
         self.nwave = wave        
         index = self.get_flux_in_Prange(para, fix_CO=fix_CO)
         flux  = flux[index]
@@ -101,7 +104,7 @@ class DataLoader(object):
         return df
     
     def get_flux_in_Prange(self, para, fix_CO=True):
-        Fs, Ts, Ls = self.R
+        Fs, Ts, Ls,_,_ = self.R
         dfpara = self.init_para(para)
         if fix_CO:
             dfpara = dfpara[(dfpara["O"] == 0.0)]
@@ -226,7 +229,7 @@ class DataLoader(object):
         if nv is None: nv = self.nv
         mask, nvv = self.get_mask_from_nv(nv, k=k, q=q)   
         nvv[~mask]  = 0.0
-        peaks, prop = self.find_peaks(nvv, prom)
+        peaks, prop = self.find_peak(nvv, prom)
         return peaks, prop, nvv
 
     def find_peak(self, nv, prom):
@@ -276,14 +279,14 @@ class DataLoader(object):
     def get_WZ_from_PY(self, pval, Y):
         try:
             KL = self.AL
-            dfP = KL[(KL["W"] > pval-2) & (KL["W"] < pval+2)]
+            dfP = KL[(KL["W"] > pval-3) & (KL["W"] < pval+3)]
             assert (len(dfP) == 1)
             ZN = dfP.iloc[0]["Z"]
             W = dfP.iloc[0]["W"]
         except:
             try:
                 KL = self.l.dfSL
-                dfP = KL[(KL["W"] > pval-2) & (KL["W"] < pval+2)]
+                dfP = KL[(KL["W"] > pval-3) & (KL["W"] < pval+3)]
                 assert(len(dfP) > 0)
                 II= dfP["I"].mode()
                 if len(II) > 1:
@@ -294,7 +297,7 @@ class DataLoader(object):
                 Z = dfP["Z"].unique()
             except:
                 KL = self.l.dfLL
-                dfP = KL[(KL["W"] > pval-2) & (KL["W"] < pval+2)]
+                dfP = KL[(KL["W"] > pval-3) & (KL["W"] < pval+3)]
                 assert(len(dfP) > 0)
                 W,_,Z,_ = dfP.iloc[dfP["I"].argmax()].values        
             ZN = self.l.ZNms[int(Z)]
@@ -397,7 +400,7 @@ class DataLoader(object):
         self.plot_V(nXSv, top=5, step=step, ax=ax[1])
         return nXLv, nXSv
 
-    def pcp_transform(self, MLv, MSv, NLv, NSv, top=15):
+    def pcp_transform(self, MLv, MSv, NLv, NSv, top=20):
         MLv, MSv, NLv, NSv = MLv[:top], MSv[:top], NLv[:top], NSv[:top] 
         Mvs = cp.vstack((MLv, MSv))
         self.pcpM = cp.dot(self.M, Mvs.T)
@@ -410,6 +413,9 @@ class DataLoader(object):
         self.NSv = self.get_xv(NSv, isM=0)
         self.Xv = cp.vstack((self.MLv, self.MSv, self.NLv, self.NSv))
         self.Xname = self.get_Xname(top)
+        self.nPC = top
+        self.nPC2 = top*2
+
 
     def get_Xname(self, top=15):
         name = []
@@ -422,7 +428,8 @@ class DataLoader(object):
         self.nXv = cp.asnumpy(self.Xv)
         self.npcpFlux = cp.asnumpy(self.pcpFlux)
         if save:
-            if PATH is None: PATH= "/scratch/ceph/swei20/data/dnn/BHB/bosz_pcp.h5"
+            if PATH is None: PATH= f"/scratch/ceph/swei20/data/dnn/{self.RNm}/bosz_pcp.h5"
+            print(PATH)
             self.save_dnn_pcp(PATH)
 
     def save_dnn_pcp(self, DNN_PCP_PATH):
@@ -438,22 +445,11 @@ class DataLoader(object):
         self.npcp20 = np.vstack([MLv[:5],MSv,NLv[:5],NSv])
         flux = cp.asnumpy(self.flux)
         nflux20 = np.dot(flux, self.pcp20.T)
-        for i in range(20):
+        for i in range(self.nPC):
             self.dfpara[f"p{i}"] = nflux20[:,i]
         if out:
             return nflux20, npcp20
 
-    # def pcp_transform(self, MLv, MSv, NLv, NSv, out=0):
-    #     self.pcp20 = cp.vstack([MLv[:5],MSv,NLv[:5],NSv])
-    #     flux20 = cp.dot(self.flux, self.pcp20.T)
-    #     nflux20 = cp.asnumpy(flux20)
-    #     npcp20 = cp.asnumpy(pcp20)
-    #     for i in range(20):
-    #         self.dfpara[f"p{i}"] = nflux20[:,i]
-    #     if out:
-    #         return nflux20, npcp20
-
-# PCP20_PATH = '/scratch/ceph/szalay/swei20/AE/PCP_FLUX_LL20.h5'
     def save_PCP(self, PCP20_PATH, nflux20, npcp20):
         with h5py.File(PCP20_PATH, 'w') as f:
             f.create_dataset("flux", data=nflux20, shape=nflux20.shape)
@@ -461,36 +457,113 @@ class DataLoader(object):
             f.create_dataset("wave", data=nwave, shape=nwave.shape)
             f.create_dataset("para", data=self.dfpara.values, shape=self.dfpara.shape)
 
-    def get_Nrf(self, pdx=1, fdx=None, top=20):
+
+
+
+    def get_all_Mrf(self, top=20, plot=1, p_num =5):
+        if plot:
+            f, axs = plt.subplots(p_num, 1, figsize=(16,2*p_num),facecolor="w")
+        for pdx in range(p_num):
+            ax = axs[pdx] if plot else None
+            self.get_Mrf(pdx=pdx, top=20, plot=plot, ax=ax)
+        sdx=set()
+        stop=0
+        for i in range(self.nPC2): # ML + MS
+            if stop==0:
+                for j in range(p_num):
+                    sdx.add(self.Fs[j][i])
+                    if len(sdx) > (top-1): stop=1
+        self.Mdx = list(sdx)
+        print(sdx)
+
+
+    def plot_Xdx(self, top=20, rng=None, X=None):
+        if X == "M": 
+            xdx = self.Mdx
+        elif X == "N":
+            xdx = self.Ndx
+        else:
+            raise ValueError("X must be M or N")
+        f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
+        if top==1: axs=[axs]
+        for vdx in range(top):
+            ax=axs[vdx]
+            self.get_wave_axis(wave=rng, ax=ax)
+            PC = self.nXv[xdx[vdx]]
+            PCN = self.Xname[xdx[vdx]]
+            self.plot_rfPC_v(PC,PCN, ax=ax)
+    
+
+
+    # def plot_Mdx(self, top=10, rng=None):
+    #     f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
+    #     if top==1: axs=[axs]
+    #     for vdx in range(top):
+    #         ax=axs[vdx]
+    #         self.get_wave_axis(wave=rng, ax=ax)
+
+    #         PC = self.nXv[self.Mdx[vdx]]
+    #         PCN = self.Xname[self.Mdx[vdx]]
+    #         self.plot_rfPC_v(PC,PCN, ax=ax)
+    
+    
+    # def plot_Ndx(self, top=10, rng=None):
+    #     f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
+    #     if top==1: axs=[axs]
+    #     for vdx in range(top):
+    #         ax=axs[vdx]
+    #         self.get_wave_axis(wave=rng, ax=ax)
+
+    #         PC = self.nXv[self.Ndx[vdx]]
+    #         PCN = self.Xname[self.Ndx[vdx]]
+    #         self.plot_rfPC_v(PC,PCN, ax=ax)
+
+    def get_Xrf(self, pdx=1, fdx=None, top=20, plot=1, ax=None, X=None):
         rf = RandomForestRegressor(max_depth=50, random_state=0, n_estimators=100, max_features=30)
         if fdx is None: 
-            data = self.npcpFlux[:,40:]
+            if X == "M": 
+                data = self.npcpFlux[:,:self.nPC2]
+                store_sdx = self.Fs
+                NM = 1
+            elif X == "N":
+                data = self.npcpFlux[:,self.nPC2:]
+                store_sdx = self.FNs
+            else:
+                raise ValueError("X must be M or N")
         else:
             data = self.npcpFlux[:,fdx]
         rf.fit(data, self.para[:, pdx])
         sdx = rf.feature_importances_.argsort()[::-1]
-        self.FNs[pdx] = sdx
-        self.plot_rf(rf, sdx[:top], log=1,N=1)
-        plt.title(f"feature importance for {self.PNms[pdx]}")
+        store_sdx[pdx] = sdx
+        if plot: 
+            self.plot_rf(rf, sdx[:top], log=1, X=X, ax=ax)
+            if ax is None: ax=plt.gca()
+            ax.annotate(f"{self.PNms[pdx]}", xy=(0.9,0.5), xycoords="axes fraction", fontsize=20)
 
-    def get_Mrf(self, pdx=1, fdx=None, top=20):
-        rf = RandomForestRegressor(max_depth=50, random_state=0, n_estimators=100, max_features=30)
-        if fdx is None: 
-            data = self.npcpFlux[:,:40]
+    def plot_rf(self, rf, sdx, log=1, X=None, ax=None):
+        if ax is None: ax =plt.subplots(1, figsize=(16,1), facecolor="w")[1]
+        if   X=="M":
+            ax.bar([self.Xname[sdx[i]] for i in range(len(sdx))], rf.feature_importances_[sdx], log=log)
+        elif X=="N":
+            ax.bar([self.Xname[self.nPC2 + sdx[i]] for i in range(len(sdx))], rf.feature_importances_[sdx], log=log)
         else:
-            data = self.npcpFlux[:,fdx]
-        rf.fit(data, self.para[:, pdx])
-        sdx = rf.feature_importances_.argsort()[::-1]
-        self.Fs[pdx] = sdx
-        self.plot_rf(rf, sdx[:top], log=1)
-        plt.title(f"feature importance for {self.PNms[pdx]}")
+            raise ValueError("X must be M or N")
 
-    def plot_rf(self, rf, sdx, log=1, N=0):
-        plt.figure(figsize=(16,1), facecolor="w")
-        if not N:
-            plt.bar([self.Xname[sdx[i]] for i in range(len(sdx))], rf.feature_importances_[sdx], log=log)
-        else:
-            plt.bar([self.Xname[40+ sdx[i]] for i in range(len(sdx))], rf.feature_importances_[sdx][:N], log=log)
+    # def get_Mrf(self, pdx=1, fdx=None, top=20, plot=1, ax=None):
+    #     rf = RandomForestRegressor(max_depth=50, random_state=0, n_estimators=100, max_features=30)
+    #     if fdx is None: 
+    #         data = self.npcpFlux[:,:self.nPC2]
+    #     else:
+    #         data = self.npcpFlux[:,fdx]
+    #     rf.fit(data, self.para[:, pdx])
+    #     sdx = rf.feature_importances_.argsort()[::-1]
+    #     self.Fs[pdx] = sdx
+    #     if plot: 
+    #         self.plot_rf(rf, sdx[:top], log=1, ax=ax)
+    #         if ax is None: ax=plt.gca()
+    #         ax.annotate(f"{self.PNms[pdx]}", xy=(0.9,0.5), xycoords="axes fraction", fontsize=20)
+
+
         # plt.title(f"feature importance for {}")
 
 

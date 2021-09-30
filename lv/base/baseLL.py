@@ -29,9 +29,14 @@ class KLine():
 
     def load_LL(self):
         dfLL = pd.read_csv(f"/scratch/ceph/szalay/swei20/LL/kurucz/gfall_vac_{self.W[3]}.csv")
-        dfLL = dfLL[dfLL["Z"]<27]
+        # dfLL = dfLL[dfLL["Z"]<27]
+        # Zs = ['H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'Ne','Na','Mg', 'Al', 'Si', 'Ar', 'K', 'Ca','Ti',"Mn","Fe" ]
+        Zs = [1,2,3,4,5,6,7,8,11,12,13,14,18,19,20,22,26]
+        dfLL = dfLL[dfLL["Z"].isin(Zs)]
         # self.dfLL = dfLL
-        self.dfLL = pd.DataFrame(dfLL[(dfLL["I"]>-3.)].values, columns = dfLL.columns)
+        self.dfLL = pd.DataFrame(dfLL[(dfLL["I"]>-10.)].values, columns = dfLL.columns)
+
+        # self.dfLL = pd.DataFrame(dfLL[(dfLL["I"]>-3.)].values, columns = dfLL.columns)
         self.dfLL26 = dfLL[(dfLL["Z"] < 27)]
 
     def prepare_LL(self, w):

@@ -63,7 +63,8 @@ class DataLoader(object):
         self.pcpFlux = None
 
         self.nXv = None
-        self.rfdx = None
+        self.Fs =  {"M": {}, "N": {}}
+        self.Xdx = {"M": {}, "N": {}}
         self.npcpFlux = None
         self.cmap="YlGnBu"
         self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "gist_rainbow", "O":"winter"}
@@ -460,87 +461,57 @@ class DataLoader(object):
 
 
 
-    def get_all_Mrf(self, top=20, plot=1, p_num =5):
+    def get_all_Xrf(self, top=20, plot=1, X=None, p_num=5):
         if plot:
             f, axs = plt.subplots(p_num, 1, figsize=(16,2*p_num),facecolor="w")
         for pdx in range(p_num):
             ax = axs[pdx] if plot else None
-            self.get_Mrf(pdx=pdx, top=20, plot=plot, ax=ax)
+            self.get_Xrf(pdx=pdx, top=20, plot=plot, ax=ax, X=X)
         sdx=set()
         stop=0
         for i in range(self.nPC2): # ML + MS
             if stop==0:
                 for j in range(p_num):
-                    sdx.add(self.Fs[j][i])
+                    sdx.add(self.Fs[X][j][i])
                     if len(sdx) > (top-1): stop=1
-        self.Mdx = list(sdx)
+        self.Xdx[X] = list(sdx)
         print(sdx)
 
 
     def plot_Xdx(self, top=20, rng=None, X=None):
-        if X == "M": 
-            xdx = self.Mdx
-        elif X == "N":
-            xdx = self.Ndx
-        else:
-            raise ValueError("X must be M or N")
+        offset=self.nPC2 if X =="N" else 0
+
         f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
         if top==1: axs=[axs]
         for vdx in range(top):
             ax=axs[vdx]
             self.get_wave_axis(wave=rng, ax=ax)
-            PC = self.nXv[xdx[vdx]]
-            PCN = self.Xname[xdx[vdx]]
+            PC = self.nXv[offset + self.Xdx[X][vdx]]
+            PCN = self.Xname[offset + self.Xdx[X][vdx]]
             self.plot_rfPC_v(PC,PCN, ax=ax)
-    
-
-
-    # def plot_Mdx(self, top=10, rng=None):
-    #     f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
-    #     if top==1: axs=[axs]
-    #     for vdx in range(top):
-    #         ax=axs[vdx]
-    #         self.get_wave_axis(wave=rng, ax=ax)
-
-    #         PC = self.nXv[self.Mdx[vdx]]
-    #         PCN = self.Xname[self.Mdx[vdx]]
-    #         self.plot_rfPC_v(PC,PCN, ax=ax)
-    
-    
-    # def plot_Ndx(self, top=10, rng=None):
-    #     f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
-    #     if top==1: axs=[axs]
-    #     for vdx in range(top):
-    #         ax=axs[vdx]
-    #         self.get_wave_axis(wave=rng, ax=ax)
-
-    #         PC = self.nXv[self.Ndx[vdx]]
-    #         PCN = self.Xname[self.Ndx[vdx]]
-    #         self.plot_rfPC_v(PC,PCN, ax=ax)
+ 
 
     def get_Xrf(self, pdx=1, fdx=None, top=20, plot=1, ax=None, X=None):
         rf = RandomForestRegressor(max_depth=50, random_state=0, n_estimators=100, max_features=30)
         if fdx is None: 
             if X == "M": 
                 data = self.npcpFlux[:,:self.nPC2]
-                store_sdx = self.Fs
                 NM = 1
             elif X == "N":
                 data = self.npcpFlux[:,self.nPC2:]
-                store_sdx = self.FNs
             else:
                 raise ValueError("X must be M or N")
         else:
             data = self.npcpFlux[:,fdx]
         rf.fit(data, self.para[:, pdx])
         sdx = rf.feature_importances_.argsort()[::-1]
-        store_sdx[pdx] = sdx
+        self.Fs[X][pdx] = sdx
         if plot: 
-            self.plot_rf(rf, sdx[:top], log=1, X=X, ax=ax)
+            self.plot_Xrf(rf, sdx[:top], log=1, X=X, ax=ax)
             if ax is None: ax=plt.gca()
             ax.annotate(f"{self.PNms[pdx]}", xy=(0.9,0.5), xycoords="axes fraction", fontsize=20)
 
-    def plot_rf(self, rf, sdx, log=1, X=None, ax=None):
+    def plot_Xrf(self, rf, sdx, log=1, X=None, ax=None):
         if ax is None: ax =plt.subplots(1, figsize=(16,1), facecolor="w")[1]
         if   X=="M":
             ax.bar([self.Xname[sdx[i]] for i in range(len(sdx))], rf.feature_importances_[sdx], log=log)
@@ -566,7 +537,31 @@ class DataLoader(object):
 
         # plt.title(f"feature importance for {}")
 
+   
 
+
+    # def plot_Mdx(self, top=10, rng=None):
+    #     f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
+    #     if top==1: axs=[axs]
+    #     for vdx in range(top):
+    #         ax=axs[vdx]
+    #         self.get_wave_axis(wave=rng, ax=ax)
+
+    #         PC = self.nXv[self.Mdx[vdx]]
+    #         PCN = self.Xname[self.Mdx[vdx]]
+    #         self.plot_rfPC_v(PC,PCN, ax=ax)
+    
+    
+    # def plot_Ndx(self, top=10, rng=None):
+    #     f, axs = plt.subplots(top,1, figsize=(16,2*top), facecolor="w")
+    #     if top==1: axs=[axs]
+    #     for vdx in range(top):
+    #         ax=axs[vdx]
+    #         self.get_wave_axis(wave=rng, ax=ax)
+
+    #         PC = self.nXv[self.Ndx[vdx]]
+    #         PCN = self.Xname[self.Ndx[vdx]]
+    #         self.plot_rfPC_v(PC,PCN, ax=ax)
 
 
 #         with h5py.File(PCP20_PATH, 'r') as f:

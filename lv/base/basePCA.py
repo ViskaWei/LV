@@ -48,6 +48,7 @@ class PCA(object):
         self.Nms = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
         self.Flux = {}
         self.nFlux = {}
+        self.nPara = {}
         self.pcFlux = {}
         self.npcFlux = {}
         self.Size = {}
@@ -76,18 +77,44 @@ class PCA(object):
         self.lick = None
 
 ####################################### Flux #####################################
-    def prepare_data(self, flux, wave, para, W=None, fix_CO=False):
+    def prepare_data(self, flux, wave, para0, W=None, fix_CO=False):
         # flux = np.clip(-flux, 0.0, None)
         if W is not None: self.W = self.Ws[W]
         self.nwave = wave        
 
         for p, pvals in self.Ps.items():
-            index = self.get_flux_in_Prange(para, pvals, fix_CO=fix_CO)
+            index, para = self.get_flux_in_Prange(para0, pvals, fix_CO=fix_CO)
              # flux, wave = self.get_flux_in_Wrange(flux, wave)
             flux_p = flux[index]
             self.nFlux[p] = flux_p
+            self.nPara[p] = para
+
             self.Size[p] = flux_p.shape[0]
             print(f"# {p} flux: {self.Size[p]}, wave {W}: {wave.shape} ")
+
+    def stack_data(self,save=0, PATH=None):
+        fluxs = []
+        lbls = []
+        paras = []
+        for ii, (key, flux) in enumerate(self.nFlux.items()):
+            if key != "G":
+                para = self.nPara[key]
+                n = len(flux)
+                fluxs.append(flux)
+                paras.append(para)
+                lbls.append(np.zeros(n) + ii)
+        fluxs = np.vstack(fluxs)
+        paras = np.vstack(paras)
+        lbls = np.hstack(lbls)
+        print(fluxs.shape, paras.shape, lbls.shape)
+        if save:
+            if PATH is None: PATH = f"/scratch/ceph/swei20/data/dnn/ALL/norm_flux.h5" 
+            ww = self.W[3][:1]
+            with h5py.File(PATH, "w") as f:
+                f.create_dataset(f"flux{ww}", data=fluxs, shape=fluxs.shape)
+                f.create_dataset(f"lbl{ww}", data=lbls, shape=lbls.shape)
+                f.create_dataset(f"para{ww}", data=paras, shape=paras.shape)
+        return fluxs, paras, lbls
 
     def prepare_svd(self, top=200):
         #gpu only
@@ -108,9 +135,9 @@ class PCA(object):
                 f.create_dataset(f"pc{p}", data=nV, shape=nV.shape)
                 f.create_dataset(f"pcFlux{p}", data=self.npcFlux[p], shape=self.npcFlux[p].shape)
 
-    def get_flux_in_Prange(self, para, p, fix_CO=True):
+    def get_flux_in_Prange(self, para0, p, fix_CO=True):
         Fs, Ts, Ls = p
-        dfpara = self.init_para(para)
+        dfpara = self.init_para(para0)
         if fix_CO:
             dfpara = dfpara[(dfpara["O"] == 0.0)]
             # dfpara = dfpara[(dfpara["C"] == 0.0) & (dfpara["O"] == 0.0)]
@@ -119,8 +146,9 @@ class PCA(object):
         maskT = (dfpara["T"] >= Ts[0]) & (dfpara["T"] <= Ts[1]) 
         maskL = (dfpara["L"] >= Ls[0]) & (dfpara["L"] <= Ls[1]) 
         mask = maskF & maskT & maskL
-        self.dfpara = dfpara[mask]
-        return self.dfpara.index
+        dfpara = dfpara[mask]
+        para = np.array(dfpara.values, dtype=np.float16)
+        return dfpara.index, para
 
     def get_flux_in_Wrange(self, flux, wave):
         Ws = self.W

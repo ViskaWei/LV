@@ -19,7 +19,7 @@ class KLine():
                         'Uut','Fl','Uup','Lv','Uus','Uuo']
         self.Egs = {"0": [1,11,12,20,26], "1": [1, 8, 12, 20, 26]}
         self.Ws = {"Blue": [3800, 6500, 2300, "Blue"], "RedL": [6300, 9700, 3000, "RedL"], 
-                   "RedM": [7100, 8850, 5000, "RedM"], "NIR": [9400, 12600, 4300, "NIR"]}
+                   "RedM": [7100, 8850, 5000, "RedM"], "NIR": [9400, 12600, 4300, "NIR"], "RMLL": [7100, 8850, 500, "RedM"]}
         self.W = self.Ws[w]
         self.dfLL = None
         self.dfLL26 = None 

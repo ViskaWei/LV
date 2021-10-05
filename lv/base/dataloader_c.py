@@ -21,7 +21,7 @@ class DataLoader(object):
     def __init__(self):
         ################################ Flux Wave ###############################
         self.Ws = {"Blue": [3800, 6500, 2300, "Blue"], "RedL": [6300, 9700, 3000, "RedL"], "RedM": [7100, 8850, 5000, "RedM"],
-                   "NIR": [9400, 12600, 4300, "NIR"]}
+                   "NIR": [9400, 12600, 4300, "NIR"], "RMLL": [7100, 8850, 500, "RMLL"]}
 
         self.Rs = { "M": [[-2.5, 0.0], [3500, 5000], [0.0, 2.0],[-0.75, 0.5], [-0.25, 0.5]], 
                     "W": [[-2.0, 0.0], [5500, 7500], [3.5, 5.0],[-0.75, 0.5], [-0.25, 0.5]],
@@ -63,6 +63,10 @@ class DataLoader(object):
         self.pcpM = None
         self.pcpN = None
         self.pcpFlux = None
+        self.npcpFlux = None
+
+        self.pcaFlux = None
+        self.npcaFlux = None
 
         self.nXv = None
         self.Fs =  {"M": {}, "N": {}}
@@ -522,21 +526,28 @@ class DataLoader(object):
         self.Xdx[X] = list(sdx)
         print(sdx)
 
-    def plot_XdxAll(self, top=6, rng=None, rfr=1):
-        if rfr: 
-            sdx = np.array(self.Xdx["M"] + [self.nPC2 + ii for ii in self.Xdx["N"]])
-            self.XdxAll = sdx            
+    def plot_XdxAll(self, pcp=1, top=6, rng=None, rfr=1):
+        if pcp:
+            if rfr: 
+                sdx = np.array(self.Xdx["M"] + [self.nPC2 + ii for ii in self.Xdx["N"]])
+                self.XdxAll = sdx            
+            else:
+                sdx = np.append(self.Cdx["M"][:top],  self.nPC2 + self.Cdx["N"][:top])
+                self.CdxAll = sdx
+            V = self.nXv
+            N = self.Xname
         else:
-            sdx = np.append(self.Cdx["M"][:top],  self.nPC2 + self.Cdx["N"][:top])
-            self.CdxAll = sdx
+            sdx = self.Cadx
+            V = self.nv
+            N = [f"v{i}" for i in range(len(sdx))]
 
         f, axs = plt.subplots(top*2,1, figsize=(16,2*top), facecolor="w")
         if top==1: axs=[axs]
         for vdx in range(top*2):
             ax=axs[vdx]
             self.get_wave_axis(wave=rng, ax=ax)
-            PC = self.nXv[sdx[vdx]]
-            PCN = self.Xname[sdx[vdx]]
+            PC = V[sdx[vdx]]
+            PCN = N[sdx[vdx]]
             self.plot_rfPC_v(PC,PCN, ax=ax)
  
 
@@ -554,25 +565,41 @@ class DataLoader(object):
             PCN = self.Xname[offset + sdx[X][vdx]]
             self.plot_rfPC_v(PC,PCN, ax=ax)
  
+    # def get_dfumap(self,)
 
-    def get_X_cluster(self, top=20, plot=1, ax=None, X=None):
-        if X == "M": 
-            data = self.npcpFlux[:,:self.nPC2]
-        elif X == "N":
-            data = self.npcpFlux[:,self.nPC2:]
+
+    def get_X_cluster(self, data=None, top=20, plot=1, ax=None, X=None):
+        if data is None:
+            store_dx = self.Cdx
+            if X == "M": 
+                data = self.npcpFlux[:,:self.nPC2]
+            elif X == "N":
+                data = self.npcpFlux[:,self.nPC2:]
+            else:
+                raise ValueError("X must be M or N")
         else:
-            raise ValueError("X must be M or N")
-
+            if self.npcaFlux is None:
+                self.pcaFlux = self.flux.dot(self.v.T)
+                self.npcaFlux = cp.asnumpy(self.pcaFlux)
+            data = self.npcaFlux
+ 
         rf = RandomForestClassifier(max_depth=50, random_state=0, n_estimators=100, max_features=40)
         rf.fit(data, self.lbl)
         sdx = rf.feature_importances_.argsort()[::-1]
-        self.Cdx[X] = sdx
-        if plot: 
-            self.plot_Xrf(rf, sdx[:top], log=0, X=X, ax=ax)
-            if ax is None: ax=plt.gca()
-            ax.axhline(0.1, color="r", ls="--")
+        if X is not None:
+            self.Cdx[X] = sdx
+            if plot: 
+                self.plot_Xrf(rf, sdx[:top], log=0, X=X, ax=ax)
+                if ax is None: ax=plt.gca()
+                ax.axhline(0.1, color="r", ls="--")
+        else:
+            self.Cadx = sdx
+            if plot:
+                self.barplot_rf(rf, sdx[:top], log=0, ax=ax)
 
-            # ax.annotate(f"{self.PNms[pdx]}", xy=(0.9,0.5), xycoords="axes fraction", fontsize=20)
+    def barplot_rf(self, rf, sdx, log=1, color="k", ax=None):
+        if ax is None: ax =plt.subplots(1, figsize=(16,1), facecolor="w")[1]
+        ax.bar([f"v{sdx[i]}" for i in range(len(sdx))],  rf.feature_importances_[sdx], log=log, color=color)
 
 
     def get_Xrf(self, pdx=1, fdx=None, top=20, plot=1, ax=None, X=None):

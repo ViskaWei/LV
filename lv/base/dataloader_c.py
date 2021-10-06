@@ -95,6 +95,7 @@ class DataLoader(object):
         self.nw = len(wave)
         self.RNm = "ALL"
         self.dfpara = pd.DataFrame(data=para, columns=["F","T","L","C","O"])
+        self.para = np.array(self.dfpara.values, dtype=np.float16)
         if lbl is not None:
             self.lbl = lbl
         print(flux.shape, wave.shape, para.shape)
@@ -104,7 +105,6 @@ class DataLoader(object):
         self.flux = cp.clip(-flux, 0.0, None)
         self.wave = wave
         
-
 
     
     def prepare_data(self, W, R, flux, wave, para, fix_CO=False):
@@ -119,9 +119,10 @@ class DataLoader(object):
         self.name = f"{self.RNms[R]} in {W}"
 
         #gpu only
-        flux = cp.asarray(flux, dtype=cp.float32)
+        flux = cp.asarray(-flux, dtype=cp.float32)
         wave = cp.asarray(wave, dtype=cp.float32)
-        self.flux = cp.clip(-flux, 0.0, None)
+        self.flux = flux
+        # self.flux = cp.clip(-flux, 0.0, None)
         self.wave = wave
         self.nw = len(wave)
 
@@ -229,6 +230,16 @@ class DataLoader(object):
         self.nv = cp.asnumpy(self.v)
         self.plot_V(self.nv, step=step)
         plt.ylabel(self.name)
+
+    def init_pca(self, step=0.3):
+        self.v = self.get_eigv(self.flux, top=50, out_w=False)
+        self.nv = cp.asnumpy(self.v)
+        self.plot_V(self.nv, step=step)
+        self.pcaFlux = self.flux.dot(self.v.T)
+        self.npcaFlux = cp.asnumpy(self.pcaFlux)
+        self.prepare_lines()
+
+
 ####################################### Mask #######################################
     def plot_mask(self, mask, ymin=0, ymax=0.1, c='r', lw=1, ax=None, fineW=0):
         ax = ax or plt.subplots(figsize=(16,1))[1]
@@ -597,31 +608,39 @@ class DataLoader(object):
             if plot:
                 self.barplot_rf(rf, sdx[:top], log=0, ax=ax)
 
-    def barplot_rf(self, rf, sdx, log=1, color="k", ax=None):
+    def barplot_rf(self, fi, sdx=None, top=15, log=0, color="k", ax=None):
+        if sdx is None: sdx = fi.argsort()[::-1][:top]
         if ax is None: ax =plt.subplots(1, figsize=(16,1), facecolor="w")[1]
-        ax.bar([f"v{sdx[i]}" for i in range(len(sdx))],  rf.feature_importances_[sdx], log=log, color=color)
+        ax.bar([f"{sdx[i]}" for i in range(len(sdx))],  fi[sdx], log=log, color=color)
 
-
-    def get_Xrf(self, pdx=1, fdx=None, top=20, plot=1, ax=None, X=None):
-        if fdx is None: 
-            if X == "M": 
-                data = self.npcpFlux[:,:self.nPC2]
-            elif X == "N":
-                data = self.npcpFlux[:,self.nPC2:]
-            else:
-                raise ValueError("X must be M or N")
-        else:
-            data = self.npcpFlux[:,fdx]
-
+    def get_rf(self, data, lbl):
         rf = RandomForestRegressor(max_depth=50, random_state=0, n_estimators=100, max_features=30)
+        rf.fit(data, lbl)
+        return rf.feature_importances_
+        # sdx = rf.feature_importances_.argsort()[::-1]
+        # return sdx, 
 
-        rf.fit(data, self.para[:, pdx])
-        sdx = rf.feature_importances_.argsort()[::-1]
+
+    def get_Xrf(self, data=None, pdx=1, fdx=None, top=20, plot=1, ax=None, X=None):
+        if data is None:
+            if fdx is None: 
+                if X == "M": 
+                    data = self.npcpFlux[:,:self.nPC2]
+                elif X == "N":
+                    data = self.npcpFlux[:,self.nPC2:]
+                else:
+                    raise ValueError("X must be M or N")
+            else:
+                data = self.npcpFlux[:,fdx]
+
+        fi = self.get_rf(data, self.para[:, pdx])
+        sdx = fi.argsort()[::-1]
         self.Fs[X][pdx] = sdx
         if plot: 
             self.plot_Xrf(rf, sdx[:top], log=1, X=X, ax=ax)
             if ax is None: ax=plt.gca()
             ax.annotate(f"{self.PNms[pdx]}", xy=(0.9,0.5), xycoords="axes fraction", fontsize=20)
+
 
     def plot_Xrf(self, rf, sdx, log=1, X=None, color="k", ax=None):
         if ax is None: ax =plt.subplots(1, figsize=(16,1), facecolor="w")[1]

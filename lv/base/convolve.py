@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 class Convolve:
     def __init__(self, wave, wref=5000, res_in=5000, res_out=3000):
         self.Ws = {"Blue": [3800, 6500, 2300], "RedL": [6300, 9700, 3000], "RedM": [7100, 8850, 5000],
-                   "NIR": [9400, 12600, 4300]}
+                   "NIR": [9400, 12600, 4300],"BL": [3800, 6500, 1000], "RML": [7100, 8850, 1000],"NL": [9400, 12600, 1000]}
         self.wave = wave
         self.wref = wref
         self.res_in = res_in

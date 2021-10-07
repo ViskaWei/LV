@@ -14,21 +14,16 @@ from matplotlib.colors import LogNorm
 from lv.pcp.pcpc import pcp_cupy
 from lv.base.baseLL import KLine
 from cuml import UMAP
+from lv.constants import Constants as c
 
 
 
 class DataLoader(object):
     def __init__(self):
         ################################ Flux Wave ###############################
-        self.Ws = {"Blue": [3800, 6500, 2300, "Blue"], "RedL": [6300, 9700, 3000, "RedL"], "RedM": [7100, 8850, 5000, "RedM"],
-                   "NIR": [9400, 12600, 4300, "NIR"], "RMLL": [7100, 8850, 500, "RMLL"]}
-
-        self.Rs = { "M": [[-2.5, 0.0], [3500, 5000], [0.0, 2.0],[-0.75, 0.5], [-0.25, 0.5]], 
-                    "W": [[-2.0, 0.0], [5500, 7500], [3.5, 5.0],[-0.75, 0.5], [-0.25, 0.5]],
-                    "C": [[-2.0, 0.0], [4500, 6000], [4.0, 5.0],[-0.75, 0.5], [-0.25, 0.5]], 
-                    "B": [[-2.5,-1.5], [7000, 9500], [2.0, 3.0],[-0.75, 0.5], [-0.25, 0.5]],
-                    "R": [[-1.0, 0.0], [5000, 6500], [2.0, 3.0],[-0.75, 0.5], [-0.25, 0.5]], 
-                    "G": [[-2.5,-1.0], [3500, 5500], [0.0, 3.5],[-0.75, 0.5], [-0.25, 0.5]]}
+        
+        self.Ws = c.Ws
+        self.Rs = c.Rs
         self.W = None
         self.R = None
         self.nw = None
@@ -36,7 +31,7 @@ class DataLoader(object):
         self.nv = None
         self.RNms = {"M": "M31G", "W": "MWW", "C": "MWC", "B": "BHB", "R": "RHB", "G":"DGG"}
         self.RNm = None
-        self.PNms = ["[M/H]", "Teff", "Logg", "[C/M]", "[a/M]"]
+        self.PNms =c.Ps
         self.Fs = {}
         
         self.FNs = {}
@@ -76,7 +71,7 @@ class DataLoader(object):
         self.CdxAll = None
         self.npcpFlux = None
         self.cmap="YlGnBu"
-        self.color = {"T": "gist_rainbow", "L": "turbo", "F": "plasma", "C": "gist_rainbow", "O":"winter"}
+        self.color = c.Cs
         self.ps =  [["p0","p1", "p2", "p3", "p4"],["p5","p6", "p7", "p8", "p9"],["p10","p11", "p12", "p13", "p14"],["p15","p16", "p17", "p18", "p19"]]
         self.name = None
         self.lick = None

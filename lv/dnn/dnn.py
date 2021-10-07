@@ -39,11 +39,7 @@ class DNN(object):
         self.reg1 = None
         self.dp = None
 
-        #eval
-        self.Ps = c.Ps
-        self.rng = None
-
-    def set_model_shape(self, input_dim, output_dim, hidden_dim):
+    def set_model_shape(self, input_dim, output_dim, hidden_dims=[]):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.input = keras.Input(shape = (self.input_dim, ), name='input')

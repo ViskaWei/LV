@@ -10,36 +10,24 @@ from sklearn.preprocessing import MinMaxScaler
 from matplotlib.patches import Rectangle
 
 
-class DNNPipeline(object):
-    def __init__(self, top=20, pdx=[0,1,2]):
-        self.pdx=pdx
+class DNNBasePipeline(object):
+    def __init__(self):
         self.dnn = None
-        self.x_trains = {}
-        self.y_trains = {}
-        self.f_trains = {}
-        self.p_trains= {}
-        self.f_tests = {}
-        self.p_tests= {}
-        self.x_tests = {}
-        self.y_tests = {}
-        self.y_test_orgs = {}
+        self.x_train = None
+        self.y_train = None
+        self.y_train_org = None
+        self.x_test = None
+        self.y_test = None
+        self.y_test_org = None
         self.y_pred = None
         self.dy_pred = None
         self.pdx = None
         self.pRange = None
         self.pMin = None
         self.pMax = None
-        self.PCs = {}
-        self.Wnms = ["BL","RML","NL"]
-        self.Rnms = c.Rnms
-        self.RRnms = c.RRnms
-        self.Pnms = c.Pnms
-        self.dWs = c.dWs
-        self.dRs = c.dRs
-        self.dR = c.dR
+        self.PC = None
         self.Ws = None
         self.Rs = None
-        
 
 
         self.Xs = {}
@@ -56,87 +44,15 @@ class DNNPipeline(object):
         self.Rts = None
         self.pdx = None
         self.wave = None
+        self.Ps = c.Ps
         self.resolution = 1000
 
-        self.init(top)
+############################################ DATA #######################################
 
-############################################ INIT #######################################
-    def init(self, top, N_train=10000, N_test=1000):
-        self.load_PCs(top=top)
-        self.load_all_data(N_train=N_train, N_test=N_test)
-
-    def load_PCs(self, top=None):
-        self.top = top
-        for W in self.Wnms:
-            Ws = self.dWs[W]
-            PC_PATH = f"/scratch/ceph/swei20/data/dnn/pc/bosz_{Ws[3]}_R{Ws[2]}.h5"
-            PC_W = {}
-            with h5py.File(PC_PATH, 'r') as f:
-                for R in self.Rnms:
-                    PC = f[f'PC_{R}'][()]
-                    PC_W[R] = PC[:top]
-            self.PCs[W] = PC_W
-
-    def load_RBF_data(self, N, R=None):
-        nn= N // 1000
-        DATA_PATH = f"/scratch/ceph/swei20/data/dnn/{self.dR[R]}/rbf_R{self.resolution}_{nn}k.h5"
-        with h5py.File(DATA_PATH, 'r') as f:
-            wave = f['wave'][()]
-            flux = f['normflux'][()]
-            pval = f['pval'][()]
-        print(wave.shape, flux.shape, pval.shape)
-        fluxs = {}
-        for W in self.Wnms:
-            Ws = self.dWs[W]
-            _, fluxs[W] = self.get_flux_in_Wrange(wave, flux, Ws)   
-        return fluxs, pval[:, self.pdx]
-
-    def load_all_data(self, N_train=10000, N_test=1000):
-        for R in self.Rnms:
-            self.f_trains[R], self.p_trains[R] = self.load_RBF_data(N_train, R=R)
-            self.f_tests[R], self.p_tests[R] = self.load_RBF_data(N_test, R=R)
-
-
-    def prepare_train_R0(self, R0, N_train=10000):
-                x_tests_R0 = {}
-        y_tests_R0 = {}
-        for R, fluxs in self.test_fluxs.items():
-        x_train = self.transform_R(fluxs, R0)
-        y_train = self.scale(pvals, R0)
-        return x_train, y_train, pvals
-
-
-    def prepare_test_R0(self, R0):
-        x_tests_R0 = {}
-        y_tests_R0 = {}
-        for R, fluxs in self.test_fluxs.items():
-            pvals = self.test_pvals[R]
-            x_tests_R0[R] = self.transform_R(fluxs, R0)
-            y_tests_R0[R] = self.scale(pvals, R)
-
-        self.x_tests[R0] = x_tests_R0
-        self.y_tests[R0] = y_tests_R0
-
-
-
-    def transform_R(self, fluxs, R):
-        xs=[]
-        for W in self.Wnms:
-            Ws = self.dWs[W]
-            flux = fluxs[W]
-            PC_WR = self.PCs[W][R]
-            xs.append(flux.dot(PC_WR.T))
-        x = np.hstack(xs)
-        return x
-
-
-
-############################################ INIT #######################################
-
-
-    def prepare_data_R(self, R, N_train=10000, N_test=1000, pdx=[0,1,2]):
+    def prepare_data(self, R, W, N_train=10000, N_test=1000, top=20, pdx=[0,1,2]):
+        self.Ws = c.dWs[W]
         self.Rs = c.dRs[R]
-        self.RR = c.dR[R]
+        self.R = c.dR[R]
         self.top = top
         self.pRange, self.pMin, self.pMax = self.get_scaler(self.Rs, pdx=pdx)
         self.load_PC_from_R(self.R, top=top)
@@ -144,6 +60,27 @@ class DNNPipeline(object):
         self.x_train, self.y_train, self.y_train_org = self.prepare_RBF_data(N_train)  
         self.x_test, self.y_test, self.y_test_org = self.prepare_RBF_data(N_test)
 
+    def prepare_RBF_data(self,N, R=None):
+        wave, flux, pval = self.load_RBF_data(N, R=R)
+        x = flux.dot(self.PC.T)
+        y_org = pval[:,self.pdx]
+        y = self.scale(y_org)
+        return x, y, y_org
+
+    def load_RBF_data(self, N, R=None):
+        if R is None: 
+            R = self.R
+        else:
+            R = c.dR[R]
+        nn= N // 1000
+        DATA_PATH = f"/scratch/ceph/swei20/data/dnn/{R}/rbf_R{self.Ws[2]}_{nn}k.h5"
+        with h5py.File(DATA_PATH, 'r') as f:
+            wave = f['wave'][()]
+            flux = f['normflux'][()]
+            pval = f['pval'][()]
+        print(wave.shape, flux.shape, pval.shape)
+        wave, flux = self.get_flux_in_Wrange(wave, flux, self.Ws)   
+        return wave, flux, pval
 
     def get_scaler(self, Rs0, pdx=None):
         l = len(Rs0)
@@ -164,13 +101,15 @@ class DNNPipeline(object):
         pval = pnorm * self.pRange + self.pMin
         return pval
 
-
-
-    # def get_
-
-
+    def load_PC_from_R(self, R, top=20):
+        PC_PATH = f"/scratch/ceph/swei20/data/dnn/pc/bosz_{self.Ws[3]}_R{self.Ws[2]}.h5"
+        with h5py.File(PC_PATH, 'r') as f:
+            PC = f[f'PC_{R[0]}'][()]
+        self.PC = PC[:top]
+        print(self.PC.shape)
         
-    def get_flux_in_Wrange(self, wave, flux, Ws):
+    def get_flux_in_Wrange(self, wave, flux, Ws=None):
+        if Ws is None: Ws = self.Ws
         start = np.digitize(Ws[0], wave)
         end = np.digitize(Ws[1], wave)
         return wave[start:end], flux[:, start:end]
@@ -204,7 +143,7 @@ class DNNPipeline(object):
             if R is not None:
                 axs[0][ii].scatter(self.YOs[R][:,ii], self.YPs[R][:,ii], c="b",s=1, label=f"{R}")
 
-            axs[0][ii].annotate(f"{self.R}-NN\n{c.Pnms[ii]}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=20)
+            axs[0][ii].annotate(f"{self.R}-NN\n{self.Ps[ii]}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=20)
             # axs[1][ii].plot(np.array([[self.pMin[ii],self.pMin[ii]], [self.pMax[ii]],self.pMax[ii]]), c="r")
 
             axs[0][ii].legend()
@@ -212,7 +151,7 @@ class DNNPipeline(object):
             if R is not None:
                 axs[1][ii].scatter(self.YOs[R][:,ii], self.dYPs[R][:,ii], c="b",s=1, label=f"{R}")
 
-            axs[1][ii].annotate(f"{self.R}-NN\n{c.Pnms[ii]}", xy=(0.6,0.2), xycoords="axes fraction", fontsize=20)
+            axs[1][ii].annotate(f"{self.R}-NN\n{self.Ps[ii]}", xy=(0.6,0.2), xycoords="axes fraction", fontsize=20)
             axs[1][ii].axhline(0, c='r')
             axs[1][ii].legend()
         axs[0][0].set_ylabel(f"pred")

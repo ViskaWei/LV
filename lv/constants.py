@@ -13,6 +13,9 @@ class Constants():
     dR={"M":"M31G","W":"MWW","C":"MWC","B":"BHB","R":"RHB","G":"DGG"}
     dC = {"[M/H]": "plasma", "Teff": "gist_rainbow", "Logg": "turbo",  "[C/M]": "gist_rainbow", "[a/M]":"winter"}
     Cs = list(dC.values())
-    Ps = list(dC.keys())
+    Pnms = list(dC.keys())
     Ws = list(dWs.keys())
+    RRnms = list(dR.values())
+    Rnms = list(dR.keys())
+
     # Rk = Rs.keys()

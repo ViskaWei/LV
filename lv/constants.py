@@ -11,6 +11,8 @@ class Constants():
         "G": [[-2.5,-1.0], [3500, 5500], [0.0, 3.5],[-0.75, 0.5], [-0.25, 0.5]]}
     
     dR={"M":"M31G","W":"MWW","C":"MWC","B":"BHB","R":"RHB","G":"DGG"}
+    dRC={"M": "orange" ,"W":"lightgreen","C":"brown","B":"dodgerblue","R":"red","G":"fuchsia"}
+
     dC = {"[M/H]": "plasma", "Teff": "gist_rainbow", "Logg": "turbo",  "[C/M]": "gist_rainbow", "[a/M]":"winter"}
     Cs = list(dC.values())
     Pnms = list(dC.keys())

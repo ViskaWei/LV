@@ -16,7 +16,6 @@ class DNNPipeline(object):
         self.dnn = None
         self.x_trains = {}
         self.y_trains = {}
-        self.f_trains = {}
         self.p_trains= {}
         self.f_tests = {}
         self.p_tests= {}
@@ -26,9 +25,9 @@ class DNNPipeline(object):
         self.y_pred = None
         self.dy_pred = None
         self.pdx = None
-        self.pRange = None
-        self.pMin = None
-        self.pMax = None
+        self.pRanges = {}
+        self.pMins = {}
+        self.pMaxs = {}
         self.PCs = {}
         self.Wnms = ["BL","RML","NL"]
         self.Rnms = c.Rnms
@@ -54,16 +53,20 @@ class DNNPipeline(object):
         self.R = None
         self.Rg = None
         self.Rts = None
-        self.pdx = None
+        self.pdx = pdx
         self.wave = None
         self.resolution = 1000
 
         self.init(top)
 
-############################################ INIT #######################################
+############################################ DATA #######################################
     def init(self, top, N_train=10000, N_test=1000):
         self.load_PCs(top=top)
-        self.load_all_data(N_train=N_train, N_test=N_test)
+        self.setup_scalers()
+        self.load_test_fluxs(N=N_test)
+        self.get_train_pcF_nP(N=N_train)
+        self.get_test_pcF_nP()
+        self.prepare_lbl()
 
     def load_PCs(self, top=None):
         self.top = top
@@ -91,33 +94,35 @@ class DNNPipeline(object):
             _, fluxs[W] = self.get_flux_in_Wrange(wave, flux, Ws)   
         return fluxs, pval[:, self.pdx]
 
-    def load_all_data(self, N_train=10000, N_test=1000):
+    def get_flux_in_Wrange(self, wave, flux, Ws):
+        start = np.digitize(Ws[0], wave)
+        end = np.digitize(Ws[1], wave)
+        return wave[start:end], flux[:, start:end]
+
+    def load_test_fluxs(self, N=1000):
         for R in self.Rnms:
-            self.f_trains[R], self.p_trains[R] = self.load_RBF_data(N_train, R=R)
-            self.f_tests[R], self.p_tests[R] = self.load_RBF_data(N_test, R=R)
+            self.f_tests[R], self.p_tests[R] = self.load_RBF_data(N, R=R)
 
+    def get_train_pcF_nP(self, N=10000):
+        for R0 in self.Rnms:
+            fluxs, self.p_trains[R0] = self.load_RBF_data(N, R=R0)
+            self.x_trains[R0] = self.transform_R(fluxs, R0)
+            self.y_trains[R0] = self.scale(self.p_trains[R0], R0)
 
-    def prepare_train_R0(self, R0, N_train=10000):
-                x_tests_R0 = {}
-        y_tests_R0 = {}
-        for R, fluxs in self.test_fluxs.items():
-        x_train = self.transform_R(fluxs, R0)
-        y_train = self.scale(pvals, R0)
-        return x_train, y_train, pvals
+    def get_test_pcF_nP(self):
+        for R0 in self.Rnms:
+            self.get_test_pcF_nP_R0(R0)
 
-
-    def prepare_test_R0(self, R0):
+    def get_test_pcF_nP_R0(self, R0):
         x_tests_R0 = {}
         y_tests_R0 = {}
-        for R, fluxs in self.test_fluxs.items():
-            pvals = self.test_pvals[R]
+        for R, fluxs in self.f_tests.items():
+            pvals = self.p_tests[R]
             x_tests_R0[R] = self.transform_R(fluxs, R0)
             y_tests_R0[R] = self.scale(pvals, R)
 
         self.x_tests[R0] = x_tests_R0
         self.y_tests[R0] = y_tests_R0
-
-
 
     def transform_R(self, fluxs, R):
         xs=[]
@@ -129,53 +134,26 @@ class DNNPipeline(object):
         x = np.hstack(xs)
         return x
 
+############################################ SCALER #######################################
+    def setup_scalers(self):
+        for R, Rs in self.dRs.items():
+            self.pRanges[R], self.pMins[R], self.pMaxs[R] = self.get_scaler(Rs)
 
-
-############################################ INIT #######################################
-
-
-    def prepare_data_R(self, R, N_train=10000, N_test=1000, pdx=[0,1,2]):
-        self.Rs = c.dRs[R]
-        self.RR = c.dR[R]
-        self.top = top
-        self.pRange, self.pMin, self.pMax = self.get_scaler(self.Rs, pdx=pdx)
-        self.load_PC_from_R(self.R, top=top)
-
-        self.x_train, self.y_train, self.y_train_org = self.prepare_RBF_data(N_train)  
-        self.x_test, self.y_test, self.y_test_org = self.prepare_RBF_data(N_test)
-
-
-    def get_scaler(self, Rs0, pdx=None):
-        l = len(Rs0)
+    def get_scaler(self, Rs0):
         Rs = np.array(Rs0).T
-        if pdx is not None: 
-            self.pdx = pdx
-            Rs = Rs[:,pdx]
-        else:
-            self.pdx = np.arange(l)
+        Rs = Rs[:, self.pdx]
         return np.diff(Rs, axis=0)[0], Rs[0], Rs[1]
 
-
-    def scale(self, pval):
-        pnorm = (pval - self.pMin) / self.pRange        
+    def scale(self, pval, R):
+        pnorm = (pval - self.pMins[R]) / self.pRanges[R]        
         return pnorm
 
     def rescale(self, pnorm):
-        pval = pnorm * self.pRange + self.pMin
+        pval = pnorm * self.pRanges[R] + self.pMins[R]
         return pval
 
-
-
-    # def get_
-
-
-        
-    def get_flux_in_Wrange(self, wave, flux, Ws):
-        start = np.digitize(Ws[0], wave)
-        end = np.digitize(Ws[1], wave)
-        return wave[start:end], flux[:, start:end]
-
 ############################################ DNN ##########################################
+
     def prepare_DNN(self, lr=0.01, dp=0.0):
         self.dnn = DNN()
         self.dnn.set_model_shape(self.top, len(self.pdx))

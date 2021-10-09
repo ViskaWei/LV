@@ -1,0 +1,17 @@
+M31G
+./scripts/build_rbf.sh sbatch  -p elephant1   grid bosz --config ./configs/import/stellar/bosz/rbf/ --out /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_5000_M31G --Fe_H -2.5 0.0 --T_eff 3500 5000 --log_g 0 2 
+
+MWW
+./scripts/build_rbf.sh  grid bosz --config ./configs/import/stellar/bosz/rbf/ --out /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_5000_MWW --Fe_H -2 0 --T_eff 5500 7500 --log_g 3.5 5 
+
+MWC
+./scripts/build_rbf.sh  grid bosz --config ./configs/import/stellar/bosz/rbf/ --out /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_5000_MWC --Fe_H -2 0 --T_eff 4500 6000 --log_g 4 5 
+
+BHB
+./scripts/build_rbf.sh  grid bosz --config ./configs/import/stellar/bosz/rbf/ --out /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_5000_BHB --Fe_H -2.5  -1.5 --T_eff 7000 9500 --log_g 2 3 
+
+RHB
+./scripts/build_rbf.sh  grid bosz --config ./configs/import/stellar/bosz/rbf/ --out /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_5000_RHB --Fe_H -1 0  --T_eff 5000 6500 --log_g 2 3 
+
+DGG
+./scripts/build_rbf.sh  grid bosz --config ./configs/import/stellar/bosz/rbf/ --out /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_5000_DGG --Fe_H -2.5 -1.0 --T_eff 3500 5500 --log_g 0 3.5 

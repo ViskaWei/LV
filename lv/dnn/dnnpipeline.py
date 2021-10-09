@@ -215,7 +215,7 @@ class DNNPipeline(object):
             ax.add_patch(Rectangle((pMin[i],pMin[j]),(pRange[i]),(pRange[j]),edgecolor="r",lw=2, facecolor="none"))
 
             if R0 != R1:
-                ax.scatter(self.p_preds[R0][R0][:,i],self.p_preds[R0][R0][:,j],s=1, c=self.dRC[R0], label= f"{self.dR[R0]}")
+                # ax.scatter(self.p_preds[R0][R0][:,i],self.p_preds[R0][R0][:,j],s=1, c=self.dRC[R0], label= f"{self.dR[R0]}")
                 ax.add_patch(Rectangle((self.pMins[R1][i],self.pMins[R1][j]),\
                     (self.pRanges[R1][i]),(self.pRanges[R1][j]),edgecolor="k",lw=2, facecolor="none"))
                 legend_ele = [Line2D([0], [0], marker='o', color='w',label=f'{self.dR[R0]}_Pred', markerfacecolor=self.dRC[R0], markersize=10),

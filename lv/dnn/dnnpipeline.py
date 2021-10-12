@@ -24,10 +24,11 @@ logging.getLogger('tensorflow').setLevel(logging.FATAL)
 
 
 class DNNPipeline(object):
-    def __init__(self, top=20, pdx=[0,1,2]):
+    def __init__(self, top=20, pdx=[0,1,2], N_test=1000):
         self.pdx=pdx
         self.npdx=len(pdx)
         self.top=top
+        self.N_test=N_test
         self.n_ftr = top * self.npdx
         self.dnn = None
         self.x_trains = {}
@@ -72,9 +73,9 @@ class DNNPipeline(object):
         self.Rts = None
         self.pdx = pdx
         self.wave = None
-        self.resolution = 1000
+        self.resolution = "1k"
 
-        self.init()
+        self.init(N_test=N_test)
 
 ############################################ DATA #######################################
     def init(self, N_train=10000, N_test=1000):
@@ -87,7 +88,7 @@ class DNNPipeline(object):
     def load_PCs(self, top=None):
         for W in self.Wnms:
             Ws = self.dWs[W]
-            PC_PATH = f"/scratch/ceph/swei20/data/dnn/pc/bosz_{Ws[3]}_R{Ws[2]}.h5"
+            PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/bosz_{Ws[3]}_R{Ws[2]}.h5"
             PC_W = {}
             with h5py.File(PC_PATH, 'r') as f:
                 for R in self.Rnms:
@@ -100,7 +101,7 @@ class DNNPipeline(object):
         DATA_PATH = f"/scratch/ceph/swei20/data/dnn/{self.dR[R]}/rbf_R{self.resolution}_{nn}k.h5"
         with h5py.File(DATA_PATH, 'r') as f:
             wave = f['wave'][()]
-            flux = f['normflux'][()]
+            flux = f['flux'][()]
             pval = f['pval'][()]
         # print(wave.shape, flux.shape, pval.shape)
         fluxs = {}
@@ -189,6 +190,7 @@ class DNNPipeline(object):
     def run(self, ep, verbose=0):
         for R0 in tqdm(self.Rnms):
             self.run_R0(R0, ep, verbose)
+        self.get_contamination()
 
     def run_R0(self, R0, ep=1, verbose=0):
         dnn = self.prepare_DNN()
@@ -218,12 +220,13 @@ class DNNPipeline(object):
                 # ax.scatter(self.p_preds[R0][R0][:,i],self.p_preds[R0][R0][:,j],s=1, c=self.dRC[R0], label= f"{self.dR[R0]}")
                 ax.add_patch(Rectangle((self.pMins[R1][i],self.pMins[R1][j]),\
                     (self.pRanges[R1][i]),(self.pRanges[R1][j]),edgecolor="k",lw=2, facecolor="none"))
-                legend_ele = [Line2D([0], [0], marker='o', color='w',label=f'{self.dR[R0]}_Pred', markerfacecolor=self.dRC[R0], markersize=10),
-                            Line2D([0], [0], marker='o',color='w', label=f'{self.dR[R1]}_Pred', markerfacecolor=self.dRC[R1], markersize=10),
+                legend_ele = [
+                    # Line2D([0], [0], marker='o', color='w',label=f'{self.dR[R0]}_Pred', markerfacecolor=self.dRC[R0], markersize=10),
+                            Line2D([0], [0], marker='o',color='w', label=f'{self.dR[R1]}_Pred ({100* self.dCT[R0][R1]:.1f}%)', markerfacecolor=self.dRC[R1], markersize=10),
                             Patch(facecolor='none', edgecolor='r', label=f"{self.dR[R0]}-NN"), 
                             Patch(facecolor='none', edgecolor='k', label=f"{self.dR[R1]}")]
             else:
-                legend_ele = [Line2D([0], [0], marker='o', color='w',label=f'{self.dR[R0]}_Pred', markerfacecolor=self.dRC[R0], markersize=10),
+                legend_ele = [Line2D([0], [0], marker='o', color='w',label=f'{self.dR[R0]}_Pred ({100* self.dCT[R0][R0]:.1f}%)', markerfacecolor=self.dRC[R0], markersize=10),
                                 Patch(facecolor='none', edgecolor='r', label=f"{self.dR[R0]}-NN")] 
 
             ax.set_xlim(pMin[i]-n_box*pRange[i], pMax[i]+n_box*pRange[i])
@@ -269,4 +272,41 @@ class DNNPipeline(object):
     #     axs[1][0].set_ylabel(f"$\Delta$pred")
 
 
+############################################ CONTAMINATION ##########################################
+    def get_contamination_R0_R1(self, R0, R1):
+        p_pred = self.p_preds[R0][R1]
+        mask = True
+        for pdx in range(self.npdx):
+            mask = mask & (p_pred[:,pdx] >= self.pMins[R0][pdx]) & (p_pred[:,pdx] <= self.pMaxs[R0][pdx])
+        contamination = mask.sum() / self.N_test
+        return contamination
 
+    def get_contamination_R0(self, R0):
+        contaminations = {}
+        for R1 in self.Rnms:
+            contaminations[R1] = self.get_contamination_R0_R1(R0, R1)
+        return contaminations
+
+    def get_contamination(self):
+        contaminations = {}
+        for R0 in self.Rnms:
+            contaminations[R0] = self.get_contamination_R0(R0)
+        self.dCT = contaminations
+
+    def get_contamination_mat(self, plot=0):
+        CT = np.zeros((len(self.Rnms), len(self.Rnms)))
+        for ii, R0 in enumerate(self.Rnms):
+            for jj, R1 in enumerate(self.Rnms):
+                # if ii == jj:
+                #     CT[ii,jj] = 1 - self.get_contamination_R0_R1(R0, R1)
+                # else:
+                CT[ii][jj] = self.get_contamination_R0_R1(R0, R1)
+
+        self.CT = CT
+        if plot:
+            plt.figure(figsize=(10,10))
+
+    # def plot_contamination(self):
+    #     f, ax = plt.subplots(figsize=(10,10))
+    #     ax.
+    

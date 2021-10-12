@@ -20,8 +20,8 @@ from lv.constants import Constants as c
 class PCA(object):
     def __init__(self):
         ################################ Flux Wave ###############################
-        self.Ws = c.Ws
-        self.Rs = c.Rs
+        self.Ws = c.dWs
+        self.Rs = c.dRs
 
         self.Nms = {"M": "M31 Giant", "W": "MW Warm", "C": "MW Cool", "B": "BHB", "R": "RHB", "G":"DwarfG Giant"}
         self.Flux = {}
@@ -48,8 +48,8 @@ class PCA(object):
         self.nmask = None
         self.Fs = {}
         self.cmap="YlGnBu"
-        self.color = c.Cs_
-        self.pnames= c.Ps
+        self.color = c.Cs
+        self.pnames= c.Pnms
         self.ps =  [["p0","p1", "p2", "p3", "p4"],["p5","p6", "p7", "p8", "p9"],["p10","p11", "p12", "p13", "p14"],["p15","p16", "p17", "p18", "p19"]]
         self.name = None
         self.lick = None
@@ -113,13 +113,13 @@ class PCA(object):
     
     
     def collect_PC(self, PATH=None):
-        if PATH is None: PATH = f"/scratch/ceph/swei20/data/dnn/pc/bosz_{self.W[3]}_R{self.W[2]}.h5"
+        if PATH is None: PATH = f"/scratch/ceph/swei20/data/dnn/PC/bosz_{self.W[3]}_R{self.W[2]}.h5"
         print(PATH)
         with h5py.File(PATH, "w") as f:
             for p, nV in self.nVs.items():
-                para = self.nPara[p]
+                # para = self.nPara[p]
                 f.create_dataset(f"PC_{p}", data=nV, shape=nV.shape)
-                f.create_dataset(f"para_{p}", data=para, shape=para.shape)
+                # f.create_dataset(f"para_{p}", data=para, shape=para.shape)
 
 
     def prepare_rf(self, cut=12):

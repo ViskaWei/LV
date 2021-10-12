@@ -73,7 +73,8 @@ class DNNBasePipeline(object):
         else:
             R = c.dR[R]
         nn= N // 1000
-        DATA_PATH = f"/scratch/ceph/swei20/data/dnn/{R}/rbf_R{self.Ws[2]}_{nn}k.h5"
+        res = self.Ws[2] // 1000
+        DATA_PATH = f"/scratch/ceph/swei20/data/dnn/{R}/rbf_R{res}_{nn}k.h5"
         with h5py.File(DATA_PATH, 'r') as f:
             wave = f['wave'][()]
             flux = f['normflux'][()]
@@ -102,7 +103,7 @@ class DNNBasePipeline(object):
         return pval
 
     def load_PC_from_R(self, R, top=20):
-        PC_PATH = f"/scratch/ceph/swei20/data/dnn/pc/bosz_{self.Ws[3]}_R{self.Ws[2]}.h5"
+        PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/bosz_{self.Ws[3]}_R{self.Ws[2]}.h5"
         with h5py.File(PC_PATH, 'r') as f:
             PC = f[f'PC_{R[0]}'][()]
         self.PC = PC[:top]

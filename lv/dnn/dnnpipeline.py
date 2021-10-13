@@ -3,6 +3,7 @@ import sys
 import h5py
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import matplotlib.pyplot as plt
 from .dnn import DNN 
 from tqdm import tqdm
@@ -293,7 +294,7 @@ class DNNPipeline(object):
             contaminations[R0] = self.get_contamination_R0(R0)
         self.dCT = contaminations
 
-    def get_contamination_mat(self, plot=0):
+    def get_contamination_mat(self, plot=1):
         CT = np.zeros((len(self.Rnms), len(self.Rnms)))
         for ii, R0 in enumerate(self.Rnms):
             for jj, R1 in enumerate(self.Rnms):
@@ -303,10 +304,46 @@ class DNNPipeline(object):
                 CT[ii][jj] = self.get_contamination_R0_R1(R0, R1)
 
         self.CT = CT
-        if plot:
-            plt.figure(figsize=(10,10))
+        if plot: self.plot_heatmaps()
 
-    # def plot_contamination(self):
-    #     f, ax = plt.subplots(figsize=(10,10))
-    #     ax.
-    
+    def plot_heatmap_v1(self, size=2000, cut=0.005, ax=None):
+        nn = len(self.Rnms)
+        xv, yv = np.meshgrid(np.arange(nn), np.arange(nn))
+        yv = np.flipud(yv)
+        if ax is None: 
+            f, ax = plt.subplots(figsize=(5,5)) #, facecolor="gray"
+        # ax.set_facecolor('lightgray')
+        mat = self.CT - np.diag(np.diag(self.CT))
+        vmax = np.max(mat)
+        ax.scatter(x=xv, y=yv, s=size / vmax * mat, marker='s', c = np.log(mat), cmap="autumn")
+        ax.grid(False, 'major')
+        ax.grid(True, 'minor', color='w',linewidth=2)
+        ax.set_xticks([t + 0.5 for t in ax.get_xticks()[:-1]], minor=True)
+        ax.set_yticks([t + 0.5 for t in ax.get_yticks()[:-1]], minor=True)
+        mask = mat > cut
+        xvm = xv[mask]
+        yvm = yv[mask]
+        ctm = mat[mask]
+        for ii in range(mask.sum()):            
+            ax.annotate(f"{ctm[ii]}", xy=(xvm[ii], yvm[ii]), xycoords="data", fontsize=15, ha='center')
+        
+        xlbl = [self.RRnms[0], *self.RRnms]
+        ax.set_xticklabels(xlbl)
+        ylbl = [self.RRnms[0], *self.RRnms[::-1]]
+        ax.set_yticklabels(ylbl, rotation=90,  verticalalignment='center', horizontalalignment='right')
+        ax.set_title(f"Error > {100*cut}%")
+
+    def plot_heatmap(self, ax=None):
+        if ax is None:
+            f, ax = plt.subplots(figsize=(6,5), facecolor="gray")
+        sns.heatmap(self.CT, vmax=0.1, ax=ax, annot=True, cmap="inferno")
+        ax.set_xticklabels(self.RRnms)
+        ax.set_yticklabels(self.RRnms)
+        ax.set_title("Contamination Heatmap")
+
+    def plot_heatmaps(self):
+        plt.style.use('seaborn-darkgrid')
+        f, axs= plt.subplots(1,2,figsize=(12,5), facecolor="w", gridspec_kw={'width_ratios': [6, 5]})
+        self.plot_heatmap(ax=axs[0])
+        self.plot_heatmap_v1(ax=axs[1])
+

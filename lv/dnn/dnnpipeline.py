@@ -30,7 +30,9 @@ class DNNPipeline(object):
         self.npdx=len(pdx)
         self.top=top
         self.N_test=N_test
-        self.n_ftr = top * self.npdx
+        self.Wnms = ["RML"]
+
+        self.n_ftr = top * len(self.Wnms)
         self.dnn = None
         self.x_trains = {}
         self.y_trains = {}
@@ -46,7 +48,8 @@ class DNNPipeline(object):
         self.pMins = {}
         self.pMaxs = {}
         self.PCs = {}
-        self.Wnms = ["BL","RML","NL"]
+        # self.Wnms = ["BL","RML","NL"]
+
         self.Rnms = c.Rnms
         self.nR = len(self.Rnms) 
         self.RRnms = c.RRnms
@@ -74,13 +77,16 @@ class DNNPipeline(object):
         self.Rts = None
         self.pdx = pdx
         self.wave = None
-        self.resolution = "1k"
+        self.resolution = 1000
 
         self.init(N_test=N_test)
 
 ############################################ DATA #######################################
-    def init(self, N_train=10000, N_test=1000):
-        self.load_PCs(top=self.top)
+    def init(self, load_PC=1, N_train=10000, N_test=1000):
+        if load_PC:
+            self.load_PCs(top=self.top)
+        else:
+            self.get_PCs(top=self.top)
         self.setup_scalers()
         self.load_test_fluxs(N=N_test)
         self.get_train_pcF_nP(N=N_train)
@@ -96,6 +102,20 @@ class DNNPipeline(object):
                     PC = f[f'PC_{R}'][()]
                     PC_W[R] = PC[:top]
             self.PCs[W] = PC_W
+
+    def get_PCs(self, top=None):
+        DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/import/stellar/grid/bosz_R{self.resolution}/logflux.h5"
+
+        for W in self.Wnms:
+            Ws = self.dWs[W]
+            
+            PC_W = {}
+            with h5py.File(PC_PATH, 'r') as f:
+                for R in self.Rnms:
+                    PC = f[f'PC_{R}'][()]
+                    PC_W[R] = PC[:top]
+            self.PCs[W] = PC_W
+
 
     def load_RBF_data(self, N, R=None):
         nn= N // 1000
@@ -170,6 +190,12 @@ class DNNPipeline(object):
         return pval
 
 ############################################ DNN ##########################################
+    # def run_DNN(self, lr=0.01, dp=0.0):
+    #     dnn = self.prepare_DNN(lr=lr, dp=dp)
+    #     dnn.fit(self.x_trains[R0], self.y_trains[R0], ep=ep, verbose=verbose)
+
+
+
     def prepare_DNN(self, lr=0.01, dp=0.0):
         dnn = DNN()
         dnn.set_model_shape(self.n_ftr, len(self.pdx))
@@ -189,9 +215,11 @@ class DNNPipeline(object):
         self.dp_preds[R0] = dp_preds_R0
 
     def run(self, ep, verbose=0):
+        dnns={}
         for R0 in tqdm(self.Rnms):
-            self.run_R0(R0, ep, verbose)
+            dnns[R0] = self.run_R0(R0, ep, verbose)
         self.get_contamination()
+        self.dnns = dnns
 
     def run_R0(self, R0, ep=1, verbose=0):
         dnn = self.prepare_DNN()
@@ -200,6 +228,7 @@ class DNNPipeline(object):
         for R, x_test in self.x_tests[R0].items():
             p_preds_R0[R] = self.predict(dnn, x_test, R0)
         self.p_preds[R0] = p_preds_R0
+        return dnn
 
     def predict(self, dnn, data, R):
         y_preds = dnn.model.predict(data)

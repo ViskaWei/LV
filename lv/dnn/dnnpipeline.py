@@ -31,6 +31,7 @@ class DNNPipeline(object):
         self.top=top
         self.N_test=N_test
         self.Wnms = ["RML"]
+        # self.Wnms = ["BL","RML","NL"]
 
         self.n_ftr = top * len(self.Wnms)
         self.dnn = None
@@ -43,12 +44,12 @@ class DNNPipeline(object):
         self.y_tests = {}
         self.p_preds = {}
         self.dp_preds = {}
+        self.ns_preds = {}
         self.pdx = None
         self.pRanges = {}
         self.pMins = {}
         self.pMaxs = {}
         self.PCs = {}
-        # self.Wnms = ["BL","RML","NL"]
 
         self.Rnms = c.Rnms
         self.nR = len(self.Rnms) 
@@ -62,7 +63,7 @@ class DNNPipeline(object):
         self.Rs = None
         
 
-
+        self.dCT = {}
         self.Xs = {}
         self.Ys = {}
         self.YOs = {}
@@ -95,19 +96,7 @@ class DNNPipeline(object):
     def load_PCs(self, top=None):
         for W in self.Wnms:
             Ws = self.dWs[W]
-            PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/bosz_{Ws[3]}_R{Ws[2]}.h5"
-            PC_W = {}
-            with h5py.File(PC_PATH, 'r') as f:
-                for R in self.Rnms:
-                    PC = f[f'PC_{R}'][()]
-                    PC_W[R] = PC[:top]
-            self.PCs[W] = PC_W
-
-    def get_PCs(self, top=None):
-        DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/import/stellar/grid/bosz_R{self.resolution}/logflux.h5"
-
-        for W in self.Wnms:
-            Ws = self.dWs[W]
+            PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/logPC/bosz_{Ws[3]}_R{Ws[2]}.h5"
             
             PC_W = {}
             with h5py.File(PC_PATH, 'r') as f:
@@ -116,14 +105,30 @@ class DNNPipeline(object):
                     PC_W[R] = PC[:top]
             self.PCs[W] = PC_W
 
+    def get_PCs(self, top=None):
+        pass
+        #TODO: get PC for each W
+        # DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/import/stellar/grid/bosz_R{self.resolution}/logflux.h5"
+
+        # for W in self.Wnms:
+        #     Ws = self.dWs[W]
+            
+        #     PC_W = {}
+        #     with h5py.File(PC_PATH, 'r') as f:
+        #         for R in self.Rnms:
+        #             PC = f[f'PC_{R}'][()]
+        #             PC_W[R] = PC[:top]
+        #     self.PCs[W] = PC_W
+
 
     def load_RBF_data(self, N, R=None):
         nn= N // 1000
         DATA_PATH = f"/scratch/ceph/swei20/data/dnn/{self.dR[R]}/rbf_R{self.resolution}_{nn}k.h5"
         with h5py.File(DATA_PATH, 'r') as f:
             wave = f['wave'][()]
-            flux = f['flux'][()]
+            flux = f['logflux'][()]
             pval = f['pval'][()]
+            
         # print(wave.shape, flux.shape, pval.shape)
         fluxs = {}
         for W in self.Wnms:
@@ -161,11 +166,12 @@ class DNNPipeline(object):
         self.x_tests[R0] = x_tests_R0
         self.y_tests[R0] = y_tests_R0
 
-    def transform_R(self, fluxs, R):
+    def transform_R(self, fluxs, R, log=0):
         xs=[]
         for W in self.Wnms:
             Ws = self.dWs[W]
             flux = fluxs[W]
+            if log: flux = np.log(flux)
             PC_WR = self.PCs[W][R]
             xs.append(flux.dot(PC_WR.T))
         x = np.hstack(xs)
@@ -218,21 +224,57 @@ class DNNPipeline(object):
         dnns={}
         for R0 in tqdm(self.Rnms):
             dnns[R0] = self.run_R0(R0, ep, verbose)
-        self.get_contamination()
+        self.get_contamination_mat()
         self.dnns = dnns
 
-    def run_R0(self, R0, ep=1, verbose=0):
-        dnn = self.prepare_DNN()
+    def run_R0(self, R0, lr=0.01, dp=0.01, ep=1, verbose=0):
+        dnn = self.prepare_DNN(lr=lr, dp=dp)
         dnn.fit(self.x_trains[R0], self.y_trains[R0], ep=ep, verbose=verbose)
         p_preds_R0= {}
         for R, x_test in self.x_tests[R0].items():
-            p_preds_R0[R] = self.predict(dnn, x_test, R0)
+            p_preds_R0[R] = self.predict(x_test, R0, dnn=dnn)
         self.p_preds[R0] = p_preds_R0
+        self.dCT[R0] = self.get_contamination_R0(R0)
         return dnn
 
-    def predict(self, dnn, data, R):
+    def predict_nsflux(self, nsflux, R0, dnn=None, log=1):
+        x_test = self.transform_R(nsflux, R0, log=log)
+        p_pred = self.predict(x_test, R0, dnn=dnn)
+        return p_pred
+
+    def predict(self, data, R, dnn=None):
+        if dnn is None: dnn = self.dnns[R]
         y_preds = dnn.model.predict(data)
         return self.rescale(y_preds, R)
+
+    def plot_nsbox_R0_R1(self, R0, R1, SN, n_box=2, axs=None, ylbl=1, Ps=None):
+        if axs is None: axs = plt.subplots(1, self.npdx,  figsize=(16, 4), facecolor="w")[1]
+        pRange, pMin, pMax, = self.pRanges[R0], self.pMins[R0], self.pMaxs[R0]
+        for i, ax in enumerate(axs):
+            j = 0 if i + 1 == 3 else i + 1
+
+            ax.scatter(self.ns_preds[R0][R1][:,i],self.ns_preds[R0][R1][:,j],s=1, c=self.dRC[R1])
+            # ax.annotate(f"{self.dR[R0]}-NN", xy=(0.5,0.8), xycoords="axes fraction",fontsize=15, c=self.dRC[R0])
+            handles, labels = ax.get_legend_handles_labels()
+
+            ax.add_patch(Rectangle((pMin[i],pMin[j]),(pRange[i]),(pRange[j]),edgecolor="r",lw=2, facecolor="none"))
+            legend_ele = [Line2D([0], [0], marker='o',color='w', label=f'{self.dR[R1]}_SN={SN}', markerfacecolor=self.dRC[R1], markersize=10)]
+
+            if R0 != R1:
+                # ax.scatter(self.p_preds[R0][R0][:,i],self.p_preds[R0][R0][:,j],s=1, c=self.dRC[R0], label= f"{self.dR[R0]}")
+                ax.add_patch(Rectangle((self.pMins[R1][i],self.pMins[R1][j]),\
+                    (self.pRanges[R1][i]),(self.pRanges[R1][j]),edgecolor="k",lw=2, facecolor="none"))
+                legend_ele.append(Patch(facecolor='none', edgecolor='r', label=f"{self.dR[R0]}-NN")) 
+                legend_ele.append(Patch(facecolor='none', edgecolor='k', label=f"{self.dR[R1]}"))
+            else:
+                legend_ele.append(Patch(facecolor='none', edgecolor='r', label=f"{self.dR[R0]}-NN") )
+
+            ax.set_xlim(pMin[i]-n_box*pRange[i], pMax[i]+n_box*pRange[i])
+            ax.set_ylim(pMin[j]-n_box*pRange[j], pMax[j]+n_box*pRange[j])
+            ax.set_xlabel(self.Pnms[i])
+            if Ps is not None: ax.set_title(f"[M/H] = {Ps[0]}, Teff={Ps[1]}K, logg={Ps[2]}")
+            ax.legend(handles = legend_ele)
+            if ylbl: ax.set_ylabel(self.Pnms[j])
 
     def plot_box_R0_R1(self, R0, R1, n_box=2, axs=None, ylbl=1):
         if axs is None: axs = plt.subplots(1, self.npdx,  figsize=(16, 4), facecolor="w")[1]
@@ -240,7 +282,7 @@ class DNNPipeline(object):
         for i, ax in enumerate(axs):
             j = 0 if i + 1 == 3 else i + 1
 
-            ax.scatter(self.p_preds[R0][R1][:,i],self.p_preds[R0][R1][:,j],s=1, c=self.dRC[R1], label= f"{self.dR[R1]}")
+            ax.scatter(self.p_preds[R0][R1][:,i],self.p_preds[R0][R1][:,j],s=1, c=self.dRC[R1])
             # ax.annotate(f"{self.dR[R0]}-NN", xy=(0.5,0.8), xycoords="axes fraction",fontsize=15, c=self.dRC[R0])
             handles, labels = ax.get_legend_handles_labels()
 
@@ -321,7 +363,7 @@ class DNNPipeline(object):
         contaminations = {}
         for R0 in self.Rnms:
             contaminations[R0] = self.get_contamination_R0(R0)
-        self.dCT = contaminations
+        return contaminations
 
     def get_contamination_mat(self, plot=1):
         CT = np.zeros((len(self.Rnms), len(self.Rnms)))

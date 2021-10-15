@@ -77,6 +77,14 @@ class Util():
         return waveL, fluxL
 
     @staticmethod
+    def resample_ns(wave, fluxs, errs, step=10, verbose=1):
+        waveL= Util.resampleWave(wave, step=step, verbose=verbose)
+        L = len(waveL)
+        fluxL =Util.resampleFlux(fluxs, L, step=step)
+        errL = Util.resampleFlux(errs, L, step=step)
+        return waveL, fluxL, errL
+
+    @staticmethod
     def print_res(wave):
         dw = np.mean(np.diff(np.log(wave)))
         print(f"#{len(wave)} R={1/dw:.2f}")
@@ -97,3 +105,113 @@ class Util():
             para = f["para"][:]
             wave = f["wave"][:]
         return wave, flux, para
+
+
+
+
+# Alex ----------------------------------------------------------------------------------------------------------------------   
+
+    @staticmethod
+    def convolveSpec(flux,step=5):
+        #---------------------------------------------------------
+        # apply a line spread function to the h-pixel spectrum
+        # with a width of 1.3 m-pixels. This is using the log(lambda) 
+        # binning in hirez.
+        #---------------------------------------------------------
+        sg = 1.3
+        #-----------------------------------
+        # create resampled kernel by step
+        # precompute the kernel, if there are many convolutions
+        #-----------------------------------
+        xx = np.linspace(-7*step, 7*step, 14*step+1)
+        yy = np.exp(-0.5*xx**2/sg**2)/np.sqrt(2*np.pi*sg**2)
+        fspec = np.convolve(flux,yy,'same')
+        return fspec
+
+    @staticmethod
+    def makeNLArray(ss,skym):
+        #-----------------------------------------
+        # choose the noise levels so that the S/N 
+        # comes at around the predetermined levels
+        #-----------------------------------------
+        nla = [2,5,10,20,50,100,200,500]
+        sna = [11,22,33,55,110]
+        
+        ssm   = getModel(ss,0)
+        varm  = getVar(ssm,skym)
+        noise = getNoise(varm)  
+        NL = []
+        SN = []
+        for nl in nla:
+            ssobs = ssm + nl*noise
+            sn    = getSN(ssobs)
+            NL.append(nl)
+            SN.append(sn)
+        f = sp.interpolate.interp1d(SN,NL, fill_value=0)
+        nlarray = f(sna)
+        
+        return nlarray
+
+    @staticmethod
+    def getVar(ssm, skym):
+        #--------------------------------------------
+        # Get the total variance
+        # BETA is the scaling for the sky
+        # VREAD is the variance of the white noise
+        # This variance is still scaled with an additional
+        # factor when we simuate an observation.
+        #--------------------------------------------
+        BETA  = 10.0
+        VREAD = 16000
+        varm  = ssm + BETA*skym + VREAD
+        return varm
+
+    @staticmethod
+    def getModel(sconv,rv):
+        #-----------------------------------------------------
+        # Generate a spectrum shifted by rv. sconv is a high rez
+        # spectrum already convolved with the LSF, rv is the 
+        # radial velocity in km/s. Here we convolve once for speed, 
+        # then apply different shifts and resample.
+        #-----------------------------------------------------
+        ss1 = shiftSpec(sconv,rv)
+        ss1 = resampleSpec(ss1)    
+        return ss1
+    
+    @staticmethod
+    def getNoise(varm):
+        #--------------------------------------------------------
+        # given the noise variance, create a noise realization
+        # using a Gaussian approximation
+        # Input
+        #  varm: the variance in m-pixel resolution
+        # Output
+        #  noise: nosie realization in m-pixels
+        #--------------------------------------------------------
+        noise = np.random.normal(0, 1, len(varm))*np.sqrt(varm)
+        return noise
+
+    @staticmethod
+    def getObs(sconv,skym,rv,NL):
+        #----------------------------------------------------
+        # get a noisy spectrum for a simulated observation
+        #----------------------------------------------------
+        # inputs
+        #   sconv: the rest-frame spectrum in h-pixels, convolved
+        #   skym: the sky in m-pixels
+        #   rv  : the radial velocity in km/s
+        #   NL  : the noise amplitude
+        # outputs
+        #   ssm : the shifted, resampled sepectrum in m-pix
+        #   varm: the variance in m-pixels
+        #-----------------------------------------------
+        # get shifted spec and the variance
+        #-------------------------------------
+        ssm   = getModel(sconv,rv)
+        varm  = getVar(ssm,skym)
+        noise = getNoise(varm)  
+        #---------------------------------------
+        # add the scaled noise to the spectrum
+        #---------------------------------------
+        ssm = ssm + NL*noise
+        return ssm

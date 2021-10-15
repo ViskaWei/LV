@@ -33,26 +33,88 @@ class DNN_R0(BaseDNN):
         self.top=top
         self.N_test=N_test
         self.Wnms = ["RML"]
+        self.Win = "RedM"
         self.R0=R0
-        self.step=20
+        self.step=step
         # self.Wnms = ["BL","RML","NL"]
-
         self.n_ftr = top * len(self.Wnms)
+        self.f_trains = {}
+        self.f_tests = {}
+        self.s_trains = {}
+        self.s_tests = {}
 
-        self.PC = None
+# data --------------------------------------------------------------------------------------------------
+
+    def prepare_R0(self, R0, R1=None, N_train=10000):
+        self.load_PCs(top=self.top)
+        self.setup_scalers()
+        self.prepare_trainset(R0, N_train)
+        if R1 is None:
+            self.prepare_testset_R0(R0, self.N_test)
+        else:
+            self.prepare_testset_R0_R1(R0, R1, self.N_test)
+
+    def load_PCs(self, top=None, W=None):
+        self.PCs[W[0]], self.nPixel = self.load_PC_W(Rs=[R0], W=W, top=top, step=20)
 
 
-    def get_PC_R(self, R, W="RedM", N=1000, step=20):
-        PC_PATH=f"/scratch/ceph/swei20/data/dnn/PC/logPC/bosz_{W}_R5000_step{step}.h5"
-        with h5py.File(PC_PATH, 'r') as f:
-            PC = f[f"PC_{R}"][:]
-        return PC
 
-    def init(self):
-        self.PC = self.get_PC_R(self.R0, W="RedM", N=1000, step=self.step)
-
-    def prepare_dataset_R_W(self, R, W, N_train, N_test, step=None):
-        self.wave, x_train, err_train, pval, dfsnr_train = self.load_R_dataset(R, W=W, N=N, step=step)
+    def prepare_trainset_R0(self, R0,  N_train):
+        self.wave, flux, err, pval, snr = self.load_nsRBF_data(R0, N_train, pdx=self.pdx)
+        nsflux = self.add_noise(flux, err)
+        self.f_trains[R0] = nsflux
+        self.x_trains[R0] = self.transform_R(nsflux, R0)
+        self.y_trains[R0] = self.scale(pval, R0)
+        self.p_trains[R0] = pval
+        self.s_trains[R0] = snr
 
 
 
+    def prepare_testset_R0(self, R0, N_test):
+        for R1 in self.Rnms:
+            self.prepare_testset_R0_R1(R0, R1, N_test)
+
+    def prepare_testset_R0_R1(self, R0, R1, N_test):
+        wave, flux, err, pval, snr = self.load_nsRBF_data(R1, N_test, pdx=self.pdx)
+        nsflux = self.add_noise(flux, err)
+        self.f_tests[R1] = nsflux
+        self.x_tests[R1] = self.transform_R(nsflux, R0)
+        self.p_tests[R1] = pval
+        self.s_tests[R1] = snr
+
+    # def test_SN(self):
+    #     self.x_SNs = {}
+    #     self.y_SNs = {}
+    #     self.p_SNs = {}
+    #     self.s_SNs = {}
+
+    #     nsdx=0
+    #     SN = snr[nsdx][2]
+    #     nsfluxs = ddp.add_noise_N(flux[nsdx], err[nsdx], 1000)
+
+    def transform_R_W(self, x, R, W):
+        return x.dot(self.PCs[W][R].T)
+
+# Train --------------------------------------------------------------------------------------------------
+
+    def run_R0(self, R0, lr=0.01, dp=0.01, ep=1, verbose=0):
+        dnn = self.prepare_DNN(lr=lr, dp=dp)
+        dnn.fit(self.x_trains[R0], self.y_trains[R0], ep=ep, verbose=verbose)
+        p_preds_R0= {}
+        for R, x_test in self.x_tests.items():
+            p_preds_R0[R] = self.predict(x_test, R0, dnn=dnn)
+        self.p_preds[R0] = p_preds_R0
+        self.dCT[R0] = self.get_contamination_R0(R0)
+        self.dnns[R0] = dnn
+
+
+    def predict_nsflux(self, nsflux, R0, dnn=None):
+        x_test = self.transform_R(nsflux, R0)
+        p_pred = self.predict(x_test, R0, dnn=dnn)
+        return p_pred
+
+    def eval_nsflux(self, SN):
+        PATH = f"/scratch/ceph/swei20/data/dnn/BHB/snr{SN}_1k.h5"
+        with h5py.File(PATH, "r") as f:
+            nsflux = f["nsflux_R"][()]
+            flux = f["flux_R"][()]

@@ -309,8 +309,8 @@ class DNNPipeline(object):
 
     def plot_box_R0(self, R0, n_box=2,  axs=None):
         if axs is None: 
-            f, axss = plt.subplots(self.npdx, self.nR,  figsize=(20, 4*self.npdx), sharey="row", sharex="row", facecolor="w")
-        for i, axs in enumerate(axss.T):
+            f, axss = plt.subplots(self.nR,self.npdx, figsize=(20, 3*self.nR), sharey="row", sharex="row", facecolor="w")
+        for i, axs in enumerate(axss):
             R1 = self.Rnms[i]
             self.plot_box_R0_R1(R0, R1, n_box, axs, ylbl = (i==0))
         plt.tight_layout()

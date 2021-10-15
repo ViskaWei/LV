@@ -76,7 +76,6 @@ class DNNPipeline(object):
         self.R = None
         self.Rg = None
         self.Rts = None
-        self.pdx = pdx
         self.wave = None
         self.resolution = 1000
 

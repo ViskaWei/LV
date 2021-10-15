@@ -25,6 +25,17 @@ class Util():
         end = np.digitize(Ws[1], wave)
         return wave[start:end], flux[:, start:end]
 
+    @staticmethod
+    def get_flux_in_Prange(dfpara, pval):
+        Fs, Ts, Ls, _,_ = pval
+        maskF = (dfpara["F"] >= Fs[0]) & (dfpara["F"] <= Fs[1]) 
+        maskT = (dfpara["T"] >= Ts[0]) & (dfpara["T"] <= Ts[1]) 
+        maskL = (dfpara["L"] >= Ls[0]) & (dfpara["L"] <= Ls[1]) 
+        mask = maskF & maskT & maskL
+        dfpara = dfpara[mask]
+        para = np.array(dfpara.values, dtype=np.float16)
+        return dfpara.index, para
+
 # sample ------------------------------------------------------------------------------
 
     @staticmethod
@@ -37,7 +48,7 @@ class Util():
         db = np.diff(w[b])
         dd = (db/step)
         wave1 = np.exp(dd) 
-        if verbose: print_res(wave1)
+        if verbose: Util.print_res(wave1)
         return wave1
 
     @staticmethod
@@ -55,14 +66,14 @@ class Util():
     def resampleFlux(fluxs, L,step=5):
         out = np.zeros((len(fluxs), L))
         for ii, flux in enumerate(fluxs):
-            out[ii] = resampleFlux_i(flux, step=step)
+            out[ii] = Util.resampleFlux_i(flux, step=step)
         return out
 
     @staticmethod
     def resample(wave, fluxs, step=10, verbose=1):
-        waveL= resampleWave(wave, step=step, verbose=verbose)
+        waveL= Util.resampleWave(wave, step=step, verbose=verbose)
         L = len(waveL)
-        fluxL = resampleFlux(fluxs, L, step=step)
+        fluxL =Util.resampleFlux(fluxs, L, step=step)
         return waveL, fluxL
 
     @staticmethod

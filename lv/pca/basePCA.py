@@ -11,6 +11,7 @@ from lv.util import Util as u
 
 class BasePCA(object):
     def __init__(self):
+        self.dataset_nm="dataset_5000"
         # self.top= None
         self.dWs = c.dWs
         # self.dRs = c.dRs
@@ -51,7 +52,7 @@ class BasePCA(object):
         nn= N // 1000
         RR = self.dR[R]
         Ws = self.dWs[W]
-        DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/{Ws[3]}_R{Ws[2]}_{nn}k.h5"
+        DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/{self.dataset_nm}/{RR}/{Ws[3]}_R{Ws[2]}_{nn}k.h5"
         with h5py.File(DATA_PATH, 'r') as f:
             wave = f['wave'][()]
             flux = f['logflux'][()]

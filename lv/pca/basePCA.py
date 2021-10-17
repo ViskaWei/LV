@@ -16,6 +16,7 @@ class BasePCA(object):
         # self.dRs = c.dRs
         self.dR = c.dR
         self.Rnms = c.Rnms
+        self.Cnms = c.Cnms
         # self.RRnms = c.RRnms
         self.nFlux = {}
         self.nPara = {}
@@ -111,11 +112,13 @@ class BasePCA(object):
                 f.create_dataset(f"PC_{R}", data=nV, shape=nV.shape)
 
     def plot_pcFlux_R(self, R, idx0=0, idx1=1, pdx=1):
-        plt.scatter(self.npcFlux[R][:,idx0], self.npcFlux[R][:,idx1],c=self.nPara[R][:,pdx])
+        plt.figure(figsize=(5,4), facecolor='w')
+        plt.scatter(self.npcFlux[R][:,idx0], self.npcFlux[R][:,idx1],c=self.nPara[R][:,pdx], s=1, cmap = self.Cnms[pdx])
         plt.xlabel(f"PC{idx0}")
         plt.ylabel(f"PC{idx1}")
         plt.colorbar()
 
+    # def plot_nV
 
 
 

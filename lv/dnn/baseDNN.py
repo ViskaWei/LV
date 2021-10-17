@@ -67,7 +67,17 @@ class BaseDNN():
 
         
 ############################################ DATA #######################################
-    
+# data cleaning -------------------------------------------------------------    
+    def get_snr(self, fluxs):
+        if isinstance(fluxs, list) or (len(fluxs.shape)>1):
+            SNs = []
+            for nsflux in fluxs:
+                SNs.append(u.getSN(nsflux))
+            return np.mean(SNs)
+        else:
+            print("not list")
+            return u.getSN(fluxs)
+
     def resample(self, wave, fluxs, step=20, verbose=1):
         return u.resample(wave, fluxs, step=step, verbose=verbose)
 
@@ -174,21 +184,27 @@ class BaseDNN():
             self.y_trains[R0] = self.scale(self.p_trains[R0], R0)
 
 # noise ---------------------------------------------------------------------------------
-    def add_noise(self, fluxs, errs, step=20):
+    def add_noise(self, fluxs, errs,  rate=1.0, step=20):
         nsflux = np.zeros_like(fluxs)
         for ii, flux in enumerate(fluxs):
-            noise = np.random.normal(0, errs[ii])
-            noiseL = self.resampleFlux_i(noise, step=step)
-            nsflux[ii] = flux + noiseL
+            noiseL = self.get_noise_i(flux, errs[ii], rate=rate, step=step)
+            nsflux[ii]= flux + noiseL
         return nsflux
 
-    def add_noise_N(self, flux, err, N, rate=1):
+    def get_noise_i(self, flux, err, rate=1.0, step=20):
+        noise = rate * np.random.normal(0, err)
+        noiseL = self.resampleFlux_i(noise, step=step)
+        return noiseL
+
+    def add_noise_N(self, flux, err, N, rate=1.0, step=20):
         nsflux = np.zeros((N, flux.shape[0]))
         for i in range(N):
-            nsflux[i] = flux + rate * np.random.normal(0, err)
+            nsflux[i] = flux + self.get_noise_i(flux, err, rate=rate, step=step)
         return nsflux
 
-############################################ SCALER #######################################
+    
+
+# scaler ---------------------------------------------------------------------------------
     def setup_scalers(self, pdx):
         self.pdx = pdx
         for R, Rs in self.dRs.items():
@@ -226,6 +242,10 @@ class BaseDNN():
         y_preds = dnn.model.predict(data)
         return self.rescale(y_preds, R)
 
+    def trans_predict(self, data, W, R0, dnn=None):
+        pc_data = self.transform_W_R(data, W, R0)
+        p_pred = self.predict(pc_data, R0, dnn=None)
+        return p_pred
 
     def plot_box_R0_R1(self, R0, R1, data=None, Ps=None, SN=None,  n_box=2, ylbl=1,  axs=None):
         if axs is None: axs = plt.subplots(1, self.npdx,  figsize=(16, 4), facecolor="w")[1]
@@ -242,17 +262,45 @@ class BaseDNN():
             # ax.annotate(f"{self.dR[R0]}-NN", xy=(0.5,0.8), xycoords="axes fraction",fontsize=15, c=self.dRC[R0])
             handles, labels = ax.get_legend_handles_labels()
 
-            ax.add_patch(Rectangle((pMin[i],pMin[j]),(pRange[i]),(pRange[j]),edgecolor="r",lw=2, facecolor="none"))
             legend_ele = [Line2D([0], [0], marker='o',color='w', label=name, markerfacecolor=self.dRC[R1], markersize=10)]
 
             if R0 != R1:
                 # ax.scatter(self.p_preds[R0][R0][:,i],self.p_preds[R0][R0][:,j],s=1, c=self.dRC[R0], label= f"{self.dR[R0]}")
+                ax.add_patch(Rectangle((pMin[i],pMin[j]),(pRange[i]),(pRange[j]),edgecolor=self.dRC[R0],lw=2, facecolor="none"))
                 ax.add_patch(Rectangle((self.pMins[R1][i],self.pMins[R1][j]),\
                     (self.pRanges[R1][i]),(self.pRanges[R1][j]),edgecolor="k",lw=2, facecolor="none"))
-                legend_ele.append(Patch(facecolor='none', edgecolor='r', label=f"{self.dR[R0]}-NN")) 
+                legend_ele.append(Patch(facecolor='none', edgecolor=self.dRC[R0], label=f"{self.dR[R0]}-NN")) 
                 legend_ele.append(Patch(facecolor='none', edgecolor='k', label=f"{self.dR[R1]}"))
             else:
-                legend_ele.append(Patch(facecolor='none', edgecolor='r', label=f"{self.dR[R0]}-NN") )
+                ax.add_patch(Rectangle((pMin[i],pMin[j]),(pRange[i]),(pRange[j]),edgecolor="k",lw=2, facecolor="none"))
+                legend_ele.append(Patch(facecolor='none', edgecolor='k', label=f"{self.dR[R0]}-NN") )
+
+            ax.set_xlim(pMin[i]-n_box*pRange[i], pMax[i]+n_box*pRange[i])
+            ax.set_ylim(pMin[j]-n_box*pRange[j], pMax[j]+n_box*pRange[j])
+            ax.set_xlabel(self.Pnms[i])
+            if Ps is not None: ax.set_title(f"[M/H] = {Ps[0]:.2f}, Teff={int(Ps[1])}K, logg={Ps[2]:.2f}")
+            ax.legend(handles = legend_ele)
+            if ylbl: ax.set_ylabel(self.Pnms[j])
+
+    def plot_SNR_R0(self, R0, data=None, Ps=None, SN=None,  n_box=2, ylbl=1,  axs=None):
+        R1 = R0
+        if data is None: 
+            data = self.ns_preds[R0][R0]
+            name = f'{self.dR[R1]}_SN={SN:.2f}'
+        if axs is None: axs = plt.subplots(1, self.npdx,  figsize=(16, 4), facecolor="w")[1]
+        pRange, pMin, pMax, = self.pRanges[R0], self.pMins[R0], self.pMaxs[R0]
+
+ 
+        for i, ax in enumerate(axs):
+            j = 0 if i + 1 == 3 else i + 1
+
+            ax.scatter(data[:,i], data[:,j],s=1, c=self.dRC[R1])
+            # ax.annotate(f"{self.dR[R0]}-NN", xy=(0.5,0.8), xycoords="axes fraction",fontsize=15, c=self.dRC[R0])
+            handles, labels = ax.get_legend_handles_labels()
+
+            ax.add_patch(Rectangle((pMin[i],pMin[j]),(pRange[i]),(pRange[j]),edgecolor="r",lw=2, facecolor="none"))
+            legend_ele = [Line2D([0], [0], marker='o',color='w', label=name, markerfacecolor=self.dRC[R1], markersize=10)]
+            legend_ele.append(Patch(facecolor='none', edgecolor='r', label=f"{self.dR[R0]}-NN") )
 
             ax.set_xlim(pMin[i]-n_box*pRange[i], pMax[i]+n_box*pRange[i])
             ax.set_ylim(pMin[j]-n_box*pRange[j], pMax[j]+n_box*pRange[j])
@@ -274,35 +322,57 @@ class BaseDNN():
             self.plot_box_R0_R1(R0, R1, data=data, Ps=Ps, SN=SN, n_box=n_box, axs=axs, ylbl = (i==0))
         # plt.tight_layout()
 
-########################################## CONTAMINATION ##########################################
-    def get_contamination_R0_R1(self, R0, R1):
+    def plot_pred(self, R0):
+        l = len(self.pdx)
+        f, axs = plt.subplots(1, l,figsize=(10,4), facecolor="w")
+        for ii, ax in enumerate(axs):
+            ax.scatter(self.p_tests[R0][:,ii], self.p_preds[R0][R0][:,ii], c="k",s=1) #, label=f"{self.Pnms[pdx]}"
+            # if R is not None:
+                # axs[0][ii].scatter(self.YOs[R][:,ii], self.YPs[R][:,ii], c="b",s=1, label=f"{R}")
+            ax.plot([self.pMins[R0][ii], self.pMaxs[R0][ii]], [self.pMins[R0][ii], self.pMaxs[R0][ii]], c="r", lw=2)
+            ax.annotate(f"{self.dR[R0]}-NN\n{self.Pnms[ii]}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=20)
+            # axs[1][ii].plot(np.array([[self.pMin[ii],self.pMin[ii]], [self.pMax[ii]],self.pMax[ii]]), c="r")
+            ax.set_xlim(self.pMins[R0][ii], self.pMaxs[R0][ii])
+            ax.set_ylim(self.pMins[R0][ii], self.pMaxs[R0][ii])
+            # ax.legend()
+            # axs[1][ii].scatter(self.y_test_org[:,ii], self.dy_pred[:,ii], c="k",s=1, label=f"{self.R}")
+            # if R is not None:
+                # axs[1][ii].scatter(self.YOs[R][:,ii], self.dYPs[R][:,ii], c="b",s=1, label=f"{R}")
+
+            # axs[1][ii].annotate(f"{self.R}-NN\n{c.Pnms[ii]}", xy=(0.6,0.2), xycoords="axes fraction", fontsize=20)
+            # axs[1][ii].axhline(0, c='r')
+            # axs[1][ii].legend()
+        axs[0].set_ylabel(f"pred")
+        # axs[1][0].set_ylabel(f"$\Delta$pred")
+########################################## overlap ##########################################
+    def get_overlap_R0_R1(self, R0, R1):
         p_pred = self.p_preds[R0][R1]
         mask = True
         for pdx in range(self.npdx):
             mask = mask & (p_pred[:,pdx] >= self.pMins[R0][pdx]) & (p_pred[:,pdx] <= self.pMaxs[R0][pdx])
-        contamination = mask.sum() / self.N_test
-        return contamination
+        overlap = mask.sum() / self.N_test
+        return overlap
 
-    def get_contamination_R0(self, R0):
-        contaminations = {}
+    def get_overlap_R0(self, R0):
+        overlaps = {}
         for R1 in self.Rnms:
-            contaminations[R1] = self.get_contamination_R0_R1(R0, R1)
-        return contaminations
+            overlaps[R1] = self.get_overlap_R0_R1(R0, R1)
+        return overlaps
 
-    def get_contamination(self):
-        contaminations = {}
+    def get_overlap(self):
+        overlaps = {}
         for R0 in self.Rnms:
-            contaminations[R0] = self.get_contamination_R0(R0)
-        return contaminations
+            overlaps[R0] = self.get_overlap_R0(R0)
+        return overlaps
 
-    def get_contamination_mat(self, plot=1):
+    def get_overlap_mat(self, plot=1):
         CT = np.zeros((len(self.Rnms), len(self.Rnms)))
         for ii, R0 in enumerate(self.Rnms):
             for jj, R1 in enumerate(self.Rnms):
                 # if ii == jj:
-                #     CT[ii,jj] = 1 - self.get_contamination_R0_R1(R0, R1)
+                #     CT[ii,jj] = 1 - self.get_overlap_R0_R1(R0, R1)
                 # else:
-                CT[ii][jj] = self.get_contamination_R0_R1(R0, R1)
+                CT[ii][jj] = self.get_overlap_R0_R1(R0, R1)
 
         self.CT = CT
         if plot: self.plot_heatmaps()
@@ -340,7 +410,7 @@ class BaseDNN():
         sns.heatmap(self.CT, vmax=0.1, ax=ax, annot=True, cmap="inferno")
         ax.set_xticklabels(self.RRnms)
         ax.set_yticklabels(self.RRnms)
-        ax.set_title("Contamination Heatmap")
+        ax.set_title("overlap Heatmap")
 
     def plot_heatmaps(self):
         plt.style.use('seaborn-darkgrid')

@@ -104,7 +104,7 @@ class DNN_R0(BaseDNN):
         for R, x_test in self.x_tests.items():
             p_preds_R0[R] = self.predict(x_test, R0, dnn=dnn)
         self.p_preds[R0] = p_preds_R0
-        self.dCT[R0] = self.get_contamination_R0(R0)
+        self.dCT[R0] = self.get_overlap_R0(R0)
         self.dnns[R0] = dnn
 
 

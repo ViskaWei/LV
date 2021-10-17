@@ -2,6 +2,7 @@ import os
 import getpass
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy as sp
 import pandas as pd
 import h5py
 from tqdm import tqdm
@@ -110,6 +111,21 @@ class Util():
 
 
 # Alex ----------------------------------------------------------------------------------------------------------------------   
+    @staticmethod
+    def getSN(spec):
+        #--------------------------------------------------
+        # estimate the S/N using Stoehr et al ADASS 2008
+        #    signal = median(flux(i))
+        #    noise = 1.482602 / sqrt(6.0) *
+        #    median(abs(2 * flux(i) - flux(i-2) - flux(i+2)))
+        #    DER_SNR = signal / noise
+        #--------------------------------------------------
+        s1 = np.median(spec)
+        s2 = np.abs(2*spec-sp.ndimage.shift(spec,2)-sp.ndimage.shift(spec,-2))
+        n1 = 1.482602/np.sqrt(6.0)*np.median(s2)
+        sn = s1/n1
+        return sn
+
 
     @staticmethod
     def convolveSpec(flux,step=5):

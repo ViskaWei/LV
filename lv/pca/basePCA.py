@@ -10,8 +10,8 @@ from lv.util import Util as u
 
 
 class BasePCA(object):
-    def __init__(self):
-        self.dataset_nm="dataset_5000"
+    def __init__(self, dataset_nm="dataset"):
+        self.dataset_nm=dataset_nm
         # self.top= None
         self.dWs = c.dWs
         # self.dRs = c.dRs
@@ -48,11 +48,12 @@ class BasePCA(object):
         for R in tqdm(self.Rnms):
             self.prepare_dataset_W_R(W, R, N=N)
 
-    def load_RBF_W_R(self, W="RML", R=None, N=1000, pdx=None):
+    def load_RBF_W_R(self, W="RML", R=None, N=1000, pdx=None, mags=[17,19]):
         nn= N // 1000
         RR = self.dR[R]
         Ws = self.dWs[W]
-        DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/{self.dataset_nm}/{RR}/{Ws[3]}_R{Ws[2]}_{nn}k.h5"
+        magNms = f"_m{mags[0]}_{mags[1]}" if self.dataset_nm=="dataset" else ""
+        DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/{self.dataset_nm}/{RR}/{Ws[3]}_R{Ws[2]}_{nn}k{magNms}.h5"
         with h5py.File(DATA_PATH, 'r') as f:
             wave = f['wave'][()]
             flux = f['logflux'][()]

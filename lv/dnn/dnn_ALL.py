@@ -23,30 +23,32 @@ class DNN_ALL(BaseDNN):
         self.n_ftr = top * len(self.Wnms)
 
 
-    def prepare(self, N_train=10000):
+    def prepare(self, N_train=10000, isNoisy=1):
         self.load_PCs(top=self.top)
         self.setup_scalers(self.pdx)
         for W in self.Wnms:
-            self.prepare_trainset_W(W, N_train)
-            self.prepare_testset_W(W, self.N_test)
+            self.prepare_trainset_W(W, N_train, isNoisy)
+            self.prepare_testset_W(W, self.N_test, isNoisy)
 
     def load_PCs(self, top=None):
         for W in self.Wnms:
             self.dPC[W], self.dPxl[W] = self.load_PC_W(W=W, Rs=None, top=top)
 
     
-    def run_R0(self, R0, lr=0.01, dp=0.01, ep=1, verbose=0):
-        dnn = self.prepare_DNN(lr=lr, dp=dp)
-        dnn.fit(self.x_trains[R0], self.y_trains[R0], ep=ep, verbose=verbose)
+    def run_R0(self, R0, top = None, lr=0.01, dp=0.01, ep=1, verbose=0):
+        dnn = self.prepare_DNN(input_dim=top, lr=lr, dp=dp)
+        x_train = self.x_trains[R0][:, :top]
+        dnn.fit(x_train, self.y_trains[R0], ep=ep, verbose=verbose)
         p_preds_R0= {}
         for R, x_test in self.x_tests[R0].items():
+            x_test = x_test[:, :top]
             p_preds_R0[R] = self.predict(x_test, R0, dnn=dnn)
         self.p_preds[R0] = p_preds_R0
         self.dCT[R0] = self.get_overlap_R0(R0)
         self.dnns[R0] = dnn
             
-    def run(self, lr=0.01, dp=0.01, ep=1, verbose=0):
+    def run(self, lr=0.01, dp=0.01, ep=1, verbose=0, top=None):
         for R0 in self.Rnms:
-            self.run_R0(R0, lr=lr, dp=dp, ep=ep, verbose=verbose)
+            self.run_R0(R0, lr=lr, dp=dp, ep=ep, verbose=verbose, top=top)
         # self.get_contamination_mat(plot=1)
 

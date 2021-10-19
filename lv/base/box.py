@@ -18,10 +18,21 @@ from lv.constants import Constants as c
 from lv.util import Util as u
 
 class Box():
-    def __init__(self):
+    def __init__(self, volta=0):
         self.para = None
-        self.sbatch = "sbatch -p elephant --mem 512g"
+        self.slurm = ""
 
+    def get_slurm(self, volta=0, srun=0, sbatch=0, mem=256):
+        slurm=""
+        if volta: 
+            slurm = " -p v100"
+        else:
+            slurm = " -p elephant --mem {mem}g"
+        if sbatch:
+            slurm = "sbatch" + slurm
+        elif srun:
+            slurm = "srun" + slurm
+        self.slurm = slurm
 
     def init_para(self):
         NORM_PATH = "/scratch/ceph/szalay/swei20/AE/norm_flux.h5"
@@ -42,7 +53,7 @@ class Box():
     def get_rbf_cmd(self, R=None, boszR=5000):
         print(R, sep="/n/n")
         pp = c.dRs[R][:3]
-        base = f"./scripts/build_rbf.sh {self.sbatch} grid bosz --config ./configs/import/stellar/bosz/rbf/"
+        base = f"./scripts/build_rbf.sh {self.slurm} grid bosz --config ./configs/import/stellar/bosz/rbf/"
         ins = f" --in /scratch/ceph/dobos/data/pfsspec/import/stellar/grid/bosz_{boszR}"
         out =  f" --out /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_{boszR}_{c.dRR[R]}/"
         param = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} "
@@ -50,12 +61,12 @@ class Box():
         print(cmd)
         self.boszR=boszR
     
-    def step2_RBF(self, mkdir=1):
+    def step2_RBF(self, mkdir=1, boszR=5000):
         if mkdir: 
             for R in c.Rnms:
                 os.mkdir(f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{c.dRR[R]}/")  
         for R in c.Rnms:
-            self.get_rbf_cmd(R, boszR=50000)
+            self.get_rbf_cmd(R, boszR=boszR)
 
     def get_noise_cmd(self, R, W="RedM", N=10000, pixelR=5000, mag_lim=[17,19]):
         assert N >= 1000
@@ -63,11 +74,12 @@ class Box():
         pp = c.dRs[R]
         w  = c.dWw[W][0]
         nn = N // 1000
-        base = f"./scripts/prepare.sh {self.sbatch} model bosz-rbf pfs --config ./configs/infer/pfs/bosz/nowave/prepare/train.json"
+        base = f"./scripts/prepare.sh {self.slurm} model bosz-rbf pfs --config ./configs/infer/pfs/bosz/nowave/prepare/train.json"
         arm  = f"  ./configs/infer/pfs/bosz/nowave/inst_pfs_{w}.json"
         size = f" --chunk-size 1000 --sample-count {N}"
         inD  = f" --in /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_{self.boszR}_{c.dRR[R]}/rbf"
-        self.dataset_name = f"bosz_R{pixelR}_{W}_{nn}k_m{mag_lim[0]}_{mag_lim[1]}"
+        self.mag_name=f"_m{mag_lim[0]}_{mag_lim[1]}"
+        self.dataset_name = f"bosz_R{pixelR}_{W}_{nn}k{self.mag_name}"
         outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{c.dRR[R]}/{self.dataset_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
         mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {mag_lim[0]} {mag_lim[1]}"
@@ -79,10 +91,13 @@ class Box():
         for R in c.Rnms:
             self.get_noise_cmd(R, N=N)
 
-    def load_dataset(self, R, W="RedM", N=1000):
+    def load_dataset(self, R, W="RedM", N=1000, DATA_PATH=None):
         RR = c.dRR[R]
         nn = N // 1000
-        DATA_PATH=f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/{self.dataset_name}/dataset.h5"
+        if DATA_PATH is None: 
+            DATA_PATH=f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/{self.dataset_name}/dataset.h5"
+
+        DATA_PATH = "/scratch/ceph/dobos/data/pfsspec/train/pfs_stellar_model/dataset/BHB/bosz_R5000_RedM_1k_m17_19/dataset.h5"
 
         with h5py.File(DATA_PATH, "r") as f:
             wave = f["wave"][()]
@@ -108,13 +123,17 @@ class Box():
         wave, flux, error, para, snr = self.load_dataset(R, W=W, N=N)  
         RR = c.dRR[R]
         nn = N // 1000
-        SAVE_PATH = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/{W}_R{self.pixelR}_{nn}k.h5"
+        SAVE_DIR = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/"
+        if not os.path.isdir(SAVE_DIR):
+            os.mkdir(SAVE_DIR)
+        SAVE_PATH = SAVE_DIR + f"{W}_R{self.pixelR}_{nn}k{self.mag_name}.h5"
+        
         self.save_dataset(wave, flux, error, para, snr, SAVE_PATH)    
         waveL, fluxL = u.resample(wave, flux, step=step)  
         print(flux.shape, fluxL.shape, error.shape, para.shape)
         w = c.dWw[W][1]
         ws = c.dWs[w]
-        SAVE_PATHL = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/{ws[3]}_R{ws[2]}_{nn}k.h5"
+        SAVE_PATHL = SAVE_DIR + f"{ws[3]}_R{ws[2]}_{nn}k{self.mag_name}.h5"
         self.save_dataset(waveL, fluxL, error, para, snr, SAVE_PATHL)
     
     def resample(self,wave, flux, step=20):

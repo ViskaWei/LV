@@ -25,6 +25,7 @@ logging.getLogger('tensorflow').setLevel(logging.FATAL)
 
 class BaseDNN():
     def __init__(self):
+        self.dataDir = "/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset_5000/"
         self.Rnms = c.Rnms
         self.nR = len(self.Rnms) 
         self.RRnms = c.RRnms
@@ -65,6 +66,9 @@ class BaseDNN():
         self.wave = None
         self.resolution = 1000
 
+        self.snrList=[10,20,30,50,100]
+        
+
         
 ############################################ DATA #######################################
 # data cleaning -------------------------------------------------------------    
@@ -88,7 +92,7 @@ class BaseDNN():
         if step is None: step = self.step
         nn=N // 1000
         RR = self.dR[R]
-        DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/bosz_5000_{W}_{nn}k/dataset.h5"  
+        DATA_PATH = f"{self.dataDir}/{RR}/bosz_5000_{W}_{nn}k/dataset.h5"  
         wave, flux, error, para, dfsnr = self.load_dataset(DATA_PATH)
         if step is not None:
             wave, flux = self.resample(wave, flux, step=step, verbose=1)
@@ -122,7 +126,7 @@ class BaseDNN():
         nn= N // 1000
         RR = self.dR[R]
         Ws = self.dWs[W]
-        DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/{Ws[3]}_R{Ws[2]}_{nn}k.h5"
+        DATA_PATH = f"{self.dataDir}/{RR}/{Ws[3]}_R{Ws[2]}_{nn}k.h5"
         with h5py.File(DATA_PATH, 'r') as f:
             wave = f['wave'][()]
             flux = f['logflux'][()]
@@ -132,44 +136,87 @@ class BaseDNN():
         if self.pdx is not None: pval = pval[:,self.pdx]
         return wave, flux, error, pval, snr
 
+    def load_snr_flux(self, W, R0, SNR_PATH=None, idx=0):
+        RR = self.dR[R0]
+        if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/SNR/{W}_{idx}.h5"    
+        with h5py.File(SNR_PATH, "r") as f:
+            wave = f["wave"][:]
+            flux = f["flux"][:]
+            para = f["para"][:]
+        dSnr={}
+        with h5py.File(SNR_PATH, "r") as f:
+            for snr in self.snrList:
+                dSnr[snr] = f[f"snr_{snr}"][()]
+        return wave, flux, para, dSnr
+
+    def prepare_snr_flux(self, R0, W="RedM", N=100, plot=1):
+        wave, flux, para, dSnr = self.load_snr_flux(W, R0)
+        nsfluxs = self.generate_nsflux_snr(flux, N, dSnr)
+        dStats={}
+        # w = self.dWw[W]
+        for snr in dSnr.keys():
+            dStats[snr] = self.eval_nsflux_snr(nsfluxs[snr], "RML", R0)
+        means = [dStats[snr]["mean"] for snr in self.snrList]
+        varss = [dStats[snr]["var"] for snr in self.snrList]
+        dStats["mean"] = means
+        dStats["var"]=varss
+        if plot:
+            self.plot_snr(dStats, W, R0)
+        return dStats
+
+    def plot_snr(self, dStats, W, R0, ax=None):
+        if ax is None: fig, ax = plt.subplots(figsize=(5,4), facecolor='w')
+        ax.plot(self.snrList, dStats["mean"], 'o-', label="mean")
+        ax.plot(self.snrList, dStats["var"], 'o-', label="std")
+        ax.set_xticks(self.snrList)
+        ax.set_xlabel("SNR")
+        ax.set_ylabel(self.dR[R0])
+        ax.set_title(W)
+        ax.legend()
 
 
-        # fluxs = {}
-        # for W in self.Wnms:
-        #     Ws = self.dWs[W]
-        #     _, fluxs[W] = self.get_flux_in_Wrange(wave, flux, Ws)   
-        # return fluxs, pval[:, self.pdx], snr
-
-
-    # def load_RBF_data(self, N, R=None):
-    #     nn= N // 1000
+    def generate_nsflux_snr(self, flux, N, dSnr):
+        dSNFlux={}
+        for snr, err in dSnr.items():
+            fluxL = self.resampleFlux_i(flux,step=20)
+            dSNFlux[snr] = self.add_noise_N(fluxL, dSnr[snr], N=N)
+        return dSNFlux
     
-    #     DATA_PATH = f"/scratch/ceph/swei20/data/dnn/{self.dR[R]}/rbf_R{self.resolution}_{nn}k.h5"
-    #     with h5py.File(DATA_PATH, 'r') as f:
-    #         wave = f['wave'][()]
-    #         flux = f['logflux'][()]
-    #         pval = f['pval'][()]
-            
-    #     # print(wave.shape, flux.shape, pval.shape)
-    #     fluxs = {}
-    #     for W in self.Wnms:
-    #         Ws = self.dWs[W]
-    #         _, fluxs[W] = self.get_flux_in_Wrange(wave, flux, Ws)   
-    #     return fluxs, pval[:, self.pdx]
-# prepare ------------------------------------------------------------------------------------
-    def process_RBF_W_R(self, W, R, N=1000):
+    def eval_nsflux_snr(self, nsflux_snr, W, R, norm=1):
+        if norm:
+            preds = self.trans_predict_norm(nsflux_snr, W, R)
+        else:
+            preds = self.trans_predict(nsflux_snr, W, R)
+        mean = preds.mean(axis=0)
+        centered = preds - mean
+        # cov = centered.T.dot(centered)
+        cov = centered
+        u,s,v = np.linalg.svd(cov)
+        stats={}
+        stats["mean"], stats["var"]=s.mean(), s.std()
+        stats["v"] = v
+        return stats
+
+    def trans_predict_norm(self, x, W, R, dnn=None):
+        data = self.transform_W_R(x, W, R)
+        if dnn is None: dnn = self.dnns[R]
+        y_preds = dnn.model.predict(data)
+        return y_preds
+
+
+
+
+
+#-----------------------------------------------
+    def process_RBF_W_R(self, W, R, N=1000, isNoisy=1):
         _, flux, error, pval, snr = self.load_RBF_W_R(W=W, R=R, N=N)
-        nsFlux = self.add_noise(flux, error)
-        # if normP: 
-        #     pcFlux = self.transform_W_R(nsFlux, W, R)
-        # else:
-        #     pcFlux = self.transform_W_R(nsFlux, W, R0)
-        # pnorm = self.scale(pval, R) if normP else None
-        return nsFlux, pval, snr
+        if isNoisy:
+            flux = self.add_noise(flux, error)
+        return flux, pval, snr
     
-    def prepare_testset_W(self, W, N_test):
+    def prepare_testset_W(self, W, N_test, isNoisy=1):
         for R0 in self.Rnms:
-            self.f_tests[R0],self.p_tests[R0], self.s_tests[R0] =self.process_RBF_W_R(W, R0, N_test)
+            self.f_tests[R0],self.p_tests[R0], self.s_tests[R0] =self.process_RBF_W_R(W, R0, N_test, isNoisy=isNoisy)
         for R0 in self.Rnms:
             x = {}
             for R1 in self.Rnms:
@@ -177,10 +224,10 @@ class BaseDNN():
             self.x_tests[R0] = x
 
 
-    def prepare_trainset_W(self,W, N_train):
+    def prepare_trainset_W(self,W, N_train, isNoisy=1):
         for R0 in self.Rnms:
-            self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_RBF_W_R(W, R0, N=N_train)
-            self.x_trains[R0] = self.transform_W_R(self.f_trains[R0], W, R0)
+            self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_RBF_W_R(W, R0, N=N_train, isNoisy=isNoisy)
+            self.x_trains[R0] = self.transform_W_R(self.f_trains[R0], W, R0) # project to R0 PC
             self.y_trains[R0] = self.scale(self.p_trains[R0], R0)
 
 # noise ---------------------------------------------------------------------------------
@@ -230,9 +277,10 @@ class BaseDNN():
 
     ############################################ DNN ##########################################
 
-    def prepare_DNN(self, lr=0.01, dp=0.0):
+    def prepare_DNN(self, input_dim=None, lr=0.01, dp=0.0):
         dnn = DNN()
-        dnn.set_model_shape(self.n_ftr, len(self.pdx))
+        if input_dim is None: input_dim = self.n_ftr
+        dnn.set_model_shape(input_dim, len(self.pdx))
         dnn.set_model_param(lr=lr, dp=dp, loss='mse', opt='adam', name='')
         dnn.build_model()
         return dnn

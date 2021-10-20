@@ -13,6 +13,8 @@ from sklearn.preprocessing import MinMaxScaler
 from matplotlib.patches import Rectangle
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
+from matplotlib import collections  as mc
+
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -69,6 +71,13 @@ class BaseDNN():
         self.snrList=[10,20,30,50,100]
         
 
+
+    def get_random_params(self, R, N, npdx=3):
+        Rs = self.dRs[R][:npdx]
+        out = np.zeros((N, npdx))
+        for pdx in range(npdx):
+            out[:, pdx] = np.random.uniform(Rs[pdx][0], Rs[pdx][1], N)
+        return out
         
 ############################################ DATA #######################################
 # data cleaning -------------------------------------------------------------    
@@ -138,7 +147,7 @@ class BaseDNN():
 
     def load_snr_flux(self, W, R0, SNR_PATH=None, idx=0):
         RR = self.dR[R0]
-        if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/SNR/{W}_{idx}.h5"    
+        if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/SNR/{W}_N{idx}.h5"    
         with h5py.File(SNR_PATH, "r") as f:
             wave = f["wave"][:]
             flux = f["flux"][:]
@@ -149,20 +158,71 @@ class BaseDNN():
                 dSnr[snr] = f[f"snr_{snr}"][()]
         return wave, flux, para, dSnr
 
-    def prepare_snr_flux(self, R0, W="RedM", N=100, plot=1):
-        wave, flux, para, dSnr = self.load_snr_flux(W, R0)
-        nsfluxs = self.generate_nsflux_snr(flux, N, dSnr)
-        dStats={}
-        # w = self.dWw[W]
-        for snr in dSnr.keys():
-            dStats[snr] = self.eval_nsflux_snr(nsfluxs[snr], "RML", R0)
-        means = [dStats[snr]["mean"] for snr in self.snrList]
-        varss = [dStats[snr]["var"] for snr in self.snrList]
-        dStats["mean"] = means
-        dStats["var"]=varss
-        if plot:
-            self.plot_snr(dStats, W, R0)
-        return dStats
+
+    def run_snr_flux_idx(self, R0, W="RedM", N=100, idx=0, plot=1):
+        _, flux, para, dSnr = self.load_snr_flux(W, R0, idx=idx)
+        dNSFlux = self.generate_nsflux_snr(flux, N, dSnr)
+        dSNPred, dSNStat = {},{}
+        for snr, nsflux in dNSFlux.items():
+            preds=self.trans_predict(nsflux, "RML", R0)
+            dSNPred[snr] = preds
+            dSNStat[snr] = self.get_preds_stats(preds, para)
+        return dSNPred, dSNStat, para
+
+    def get_preds_stats(self, preds, para):
+        mu, sigma = preds.mean(0), preds.std(0)
+        centered = preds - mu
+        
+        pass
+
+    def run_snr_flux(self, R0, W="RedM",nFlux=2, N=100):
+        dSNPreds={}
+        paras=[]
+        for idx in range(nFlux):
+            dSNPreds[idx], para = self.test_snr_flux_idx(R0, W, N, idx)
+            paras.append(para)
+        paras=np.vstack(paras)
+
+        return dSNPreds, paras
+
+    def eval_dSNPred(self, dSNPred, snrList=None):
+        if snrList is None: snrList = self.snrList
+        dSNPred_eval = {}
+        for snr in snrList:
+            self.eval_dSNPred_snr(dSNPred[snr])
+            for R in self.Rnms:
+                dSNPred_eval[snr][R] = self.eval_dSNPred_R(dSNPred[snr], R)
+        return dSNPred_eval
+
+    # def eval_dSNPreds(self, )
+
+    def eval_dSNPred_snr(self, preds):
+        mean = preds.mean(axis=0)
+        centered = preds - mean
+
+        # cov = centered.T.dot(centered)
+        # cov = centered
+        # u,s,v = np.linalg.svd(cov)
+        # stats={}
+        # stats["mean"], stats["var"]=s.mean(), s.std()
+        # stats["v"] = v
+
+        return stats
+
+    # def prepare_snr_flux(self, R0, W="RedM", N=100, idx=0, plot=1):
+    #     wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=idx)
+    #     nsfluxs = self.generate_nsflux_snr(flux, N, dSnr)
+    #     dStats={}
+    #     # w = self.dWw[W]
+    #     for snr in dSnr.keys():
+    #         dStats[snr] = self.eval_nsflux_snr(nsfluxs[snr], "RML", R0)
+    #     center = [dStats[snr]["mean"] for snr in self.snrList]
+    #     varss = [dStats[snr]["var"] for snr in self.snrList]
+    #     dStats["mean"] = center
+    #     dStats["var"]=varss
+    #     if plot:
+    #         self.plot_snr(dStats, W, R0)
+    #     return dStats
 
     def plot_snr(self, dStats, W, R0, ax=None):
         if ax is None: fig, ax = plt.subplots(figsize=(5,4), facecolor='w')
@@ -182,20 +242,7 @@ class BaseDNN():
             dSNFlux[snr] = self.add_noise_N(fluxL, dSnr[snr], N=N)
         return dSNFlux
     
-    def eval_nsflux_snr(self, nsflux_snr, W, R, norm=1):
-        if norm:
-            preds = self.trans_predict_norm(nsflux_snr, W, R)
-        else:
-            preds = self.trans_predict(nsflux_snr, W, R)
-        mean = preds.mean(axis=0)
-        centered = preds - mean
-        # cov = centered.T.dot(centered)
-        cov = centered
-        u,s,v = np.linalg.svd(cov)
-        stats={}
-        stats["mean"], stats["var"]=s.mean(), s.std()
-        stats["v"] = v
-        return stats
+
 
     def trans_predict_norm(self, x, W, R, dnn=None):
         data = self.transform_W_R(x, W, R)
@@ -295,7 +342,95 @@ class BaseDNN():
         p_pred = self.predict(pc_data, R0, dnn=None)
         return p_pred
 
-    def plot_box_R0_R1(self, R0, R1, data=None, Ps=None, SN=None,  n_box=2, ylbl=1,  axs=None):
+
+    def flow_fn(self,paras, center):
+        fpara=self.para_fn(paras, c="r",s=10)
+        fmean=self.para_fn(center, c="g",s=10)
+        ftraj=self.traj_fn(paras, center, c="r",lw=2)
+
+        return [fpara,fmean, ftraj]
+
+    def traj_fn(self, strts, ends, c=None, lw=2):
+        nTest=strts.shape[0]
+        def fn(i, j , ax, handles=[]):
+            flowList=[]
+            for ii in range(nTest):
+                strt=strts[ii]
+                end= ends[ii]
+                flowList.append([(strt[i],strt[j]), (end[i],end[j])])
+            lc = mc.LineCollection(flowList, colors=c, linewidths=lw)
+            ax.add_collection(lc)
+            return handles
+        return fn
+
+    def para_fn(self, para, c=None, s=1):
+        def fn(i, j, ax, handles=[]):
+            ax.scatter(para[:,i], para[:,j],s=s, c=c)
+            return handles
+        return fn
+
+    def SN_pred_fn(self, preds, snr=100, c=None):
+        fns=[]
+        for num, pred in preds.items():
+            fns.append(self.para_fn(pred[snr], c=c))
+        return fns
+
+    # def plot_pred_fn(self, data, R, color=None):
+    #     def fn(i, j , ax):
+    #         ax.scatter(data[:,i], data[:,j],s=1, c='k')
+    #         for R in self.Rnms:
+    #             # p_pred = self.
+
+    def plot_pred_fn_R0_R1(self, R0, R1):
+        data = self.p_preds[R0][R1]
+        name = f'{self.dR[R1]}_Pred ({100* self.dCT[R0][R1]:.1f}%)' 
+        pRange, pMin, pMax, = self.pRanges[R0], self.pMins[R0], self.pMaxs[R0]
+        def fn(i, j , ax, handles=[]):
+            ax.scatter(data[:,i], data[:,j],s=1, c=self.dRC[R1])
+            handles.append(Line2D([0], [0], marker='o',color='w', label=name, markerfacecolor=self.dRC[R1], markersize=10))
+            return handles
+        return fn
+            
+    def box_fn_R0(self, R0, n_box=None, c="k"):
+        if c is None: c = self.dRC[R0]
+        pRange, pMin, pMax, = self.pRanges[R0], self.pMins[R0], self.pMaxs[R0]
+        def fn(i, j , ax, handles=[]):
+            if n_box is not None:
+                ax.set_xlim(pMin[i]-n_box*pRange[i], pMax[i]+n_box*pRange[i])
+                ax.set_ylim(pMin[j]-n_box*pRange[j], pMax[j]+n_box*pRange[j])
+            ax.add_patch(Rectangle((pMin[i],pMin[j]),(pRange[i]),(pRange[j]),edgecolor=c,lw=2, facecolor="none"))
+            handles.append(Patch(facecolor='none', edgecolor=c, label=f"{self.dR[R0]}-Box")) 
+            return handles
+        return fn
+
+    def box_fn_R0_R1(self, R0, R1, n_box=None):
+        if R0!=R1:
+            box_R0 = self.box_fn_R0(R0, n_box=n_box, c=None)
+            box_R1 = self.box_fn_R0(R1, c="k")
+            return [box_R0, box_R1]
+        else:
+            return [self.box_fn_R0(R0, n_box=n_box, c="k")]
+
+
+    def plot_box_R0_R1(self, R0, R1, fns,  n_box=2, ylbl=1,  axs=None):
+        if axs is None: axs = plt.subplots(1, self.npdx,  figsize=(16, 4), facecolor="w")[1]
+        box_fns =self.box_fn_R0_R1(R0,R1, n_box=n_box)
+        fns = fns + box_fns
+        for i, ax in enumerate(axs):
+            j = 0 if i == 2 else i + 1
+            handles, labels = ax.get_legend_handles_labels()
+            handles = []
+            for fn in fns:
+                handles = fn(i, j, ax, handles)
+            ax.legend(handles = handles)
+            ax.set_xlabel(self.Pnms[i])            
+            # ax.annotate(f"{self.dR[R0]}-NN", xy=(0.5,0.8), xycoords="axes fraction",fontsize=15, c=self.dRC[R0])           
+            # if Ps is not None: ax.set_title(f"[M/H] = {Ps[0]:.2f}, Teff={int(Ps[1])}K, logg={Ps[2]:.2f}")
+            if ylbl: ax.set_ylabel(self.Pnms[j])
+
+
+
+    def plot_box_R0_R1_v0(self, R0, R1, data=None, Ps=None, SN=None,  n_box=2, ylbl=1,  axs=None, color=None):
         if axs is None: axs = plt.subplots(1, self.npdx,  figsize=(16, 4), facecolor="w")[1]
         pRange, pMin, pMax, = self.pRanges[R0], self.pMins[R0], self.pMaxs[R0]
         if data is None: 
@@ -303,10 +438,11 @@ class BaseDNN():
             name =  f'{self.dR[R1]}_Pred ({100* self.dCT[R0][R1]:.1f}%)' if SN is None else f'{self.dR[R1]}_SN={SN:.2f}'
         else:
             name = f'{self.dR[R0]}-NN'
+        if color is None: color =self.dRC[R1]
         for i, ax in enumerate(axs):
-            j = 0 if i + 1 == 3 else i + 1
-
-            ax.scatter(data[:,i], data[:,j],s=1, c=self.dRC[R1])
+            j = 0 if i == 2 else i + 1
+            self.plot_para(data, i, j, color, ax)
+            
             # ax.annotate(f"{self.dR[R0]}-NN", xy=(0.5,0.8), xycoords="axes fraction",fontsize=15, c=self.dRC[R0])
             handles, labels = ax.get_legend_handles_labels()
 

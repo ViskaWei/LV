@@ -1,11 +1,15 @@
 import os
 import getpass
-import matplotlib.pyplot as plt
 import numpy as np
 import scipy as sp
 import pandas as pd
 import h5py
 from tqdm import tqdm
+from scipy.stats import chi2 as chi2
+import matplotlib.pyplot as plt
+import matplotlib.transforms as transforms
+from matplotlib.patches import Ellipse
+
 
 class Util():
     def __init__(self):
@@ -107,7 +111,34 @@ class Util():
             wave = f["wave"][:]
         return wave, flux, para
 
-
+# Plot ----------------------------------------------------------------------------------------------------------------------
+    @staticmethod
+    def get_correlated_dataset(n=1000, dependency=[[1, -2],[0.3, 1]], mu=(2,4), scale=(1,10)):
+        latent = np.random.randn(n, 2)
+        dependent = latent.dot(dependency)
+        scaled = dependent * scale
+        scaled_with_offset = scaled + mu
+        # return x and y of the new, correlated dataset
+        return scaled_with_offset[:, 0], scaled_with_offset[:, 1]
+    
+    @staticmethod
+    def get_ellipse_fn(x,y,df):
+        x0,x1=x.mean(0), x.std(0)
+        y0,y1=y.mean(0), y.std(0)
+        # _, s, v = np.linalg.svd(np.cov(x-x0,y-y0))
+        _, s, v = np.linalg.svd(np.cov(x,y))
+        s05 = s**0.5
+        radian =np.arctan(v[0][1] / v[0][0])
+        degree = radian / np.pi * 180    
+        def add_ellipse(ratio, c="k", ax=None):
+            chi2_val = chi2.ppf(ratio, df)
+            co = 2 * chi2_val**0.5
+            e = Ellipse(xy=(x0, y0),width=co*s05[0], height=co*s05[1], facecolor="none",edgecolor=c,label=f"Chi2_{100*ratio:.0f}%")
+            transf = transforms.Affine2D().rotate_deg(degree)        
+            e.set_transform(transf + ax.transData)
+            ax.add_patch(e)
+            return ax
+        return add_ellipse
 
 
 # Alex ----------------------------------------------------------------------------------------------------------------------   

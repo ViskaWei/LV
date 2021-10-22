@@ -113,32 +113,90 @@ class Util():
 
 # Plot ----------------------------------------------------------------------------------------------------------------------
     @staticmethod
-    def get_correlated_dataset(n=1000, dependency=[[1, -2],[0.3, 1]], mu=(2,4), scale=(1,10)):
-        latent = np.random.randn(n, 2)
-        dependent = latent.dot(dependency)
+    def get_correlated_dataset(n=1000, cov=[[1, -2],[0.3, 1]], mu=(2,4), scale=(1,10)):
+        latent = np.random.randn(n, len(mu))
+        dependent = latent.dot(cov)
         scaled = dependent * scale
         scaled_with_offset = scaled + mu
         # return x and y of the new, correlated dataset
-        return scaled_with_offset[:, 0], scaled_with_offset[:, 1]
+        return scaled_with_offset
     
+    def plot3(self, fns=[], data=None, lbl=["MH","Teff","Logg"]):
+        f, axs = plt.subplots(1, 3 ,  figsize=(16, 4), facecolor="w")
+        for ii, ax in enumerate(axs):
+            jj = 0 if ii == 2 else ii + 1
+            if data is not None:
+                x, y = data[:,jj], data[:,ii]
+                ax.scatter(x, y, s=1, alpha=0.5, color="k")
+            for fn in fns:
+                fn(ii,jj,ax,[])            
+            ax.set_xlabel(lbl[ii])            
+            ax.set_ylabel(lbl[jj])            
+
+
+
+
+
+
     @staticmethod
-    def get_ellipse_fn(x,y,df):
-        x0,x1=x.mean(0), x.std(0)
-        y0,y1=y.mean(0), y.std(0)
+    def get_ellipse_fn_2d(x,y,df):
+        x0,y0=x.mean(0),y.mean(0)
+        # x1,y1=x.std(0),y.std(0)
         # _, s, v = np.linalg.svd(np.cov(x-x0,y-y0))
         _, s, v = np.linalg.svd(np.cov(x,y))
         s05 = s**0.5
-        radian =np.arctan(v[0][1] / v[0][0])
-        degree = radian / np.pi * 180    
+        degree = Util.get_angle_from_v(v) 
         def add_ellipse(ratio, c="k", ax=None):
             chi2_val = chi2.ppf(ratio, df)
             co = 2 * chi2_val**0.5
-            e = Ellipse(xy=(x0, y0),width=co*s05[0], height=co*s05[1], facecolor="none",edgecolor=c,label=f"Chi2_{100*ratio:.0f}%")
-            transf = transforms.Affine2D().rotate_deg(degree)        
-            e.set_transform(transf + ax.transData)
+            e = Ellipse(xy=(0,0),width=co*s05[0], height=co*s05[1], facecolor="none",edgecolor=c,label=f"Chi2_{100*ratio:.0f}%")
+            transf = transforms.Affine2D().rotate_deg(degree).translate(x0,y0) + ax.transData        
+            e.set_transform(transf)
             ax.add_patch(e)
-            return ax
+            ax.plot(x0,y0,"go")
         return add_ellipse
+
+    @staticmethod
+    def get_angle_from_v(v, idx=0):
+        radian =np.arctan(v[idx][1] / v[idx][0])
+        degree = radian / np.pi * 180    
+        return degree
+
+    # def add_ellipse(ratio, c="k", ax=None):
+    #     chi2_val = chi2.ppf(ratio, df)
+    #     co = 2 * chi2_val**0.5
+    #     e = Ellipse(xy=(0,0),width=co*s05[0], height=co*s05[1], facecolor="none",edgecolor=c,label=f"Chi2_{100*ratio:.0f}%")
+    #     transf = transforms.Affine2D().rotate_deg(degree).translate(x0,y0) + ax.transData        
+    #     e.set_transform(transf)
+    #     ax.add_patch(e)
+    #     ax.plot(x0,y0,"go")
+
+    def get_ellipse_fn_ij(mean,s,v):
+
+        x0,y0=x.mean(0),y.mean(0)
+        def add_ellipse(ratio, c="k", ax=None):
+            chi2_val = chi2.ppf(ratio, df)
+            co = 2 * chi2_val**0.5
+            e = Ellipse(xy=(0,0),width=co*s05[0], height=co*s05[1], facecolor="none",edgecolor=c,label=f"Chi2_{100*ratio:.0f}%")
+            transf = transforms.Affine2D().rotate_deg(degree).translate(x0,y0) + ax.transData        
+            e.set_transform(transf)
+            ax.add_patch(e)
+            ax.plot(x0,y0,"go")
+        return add_ellipse
+
+    @staticmethod
+    def plot_correlated(x,y, chis=[0.95,0.99]):
+        fig, ax = plt.subplots(figsize=(10,10))
+        ax.scatter(x,y)
+        x0,y0=x.mean(0),y.mean(0)
+        ax.plot(x0,y0,"ro")
+        add_e = Util.get_ellipse_fn_2d(x,y,2)
+        for ratio in chis:
+            add_e(ratio, ax=ax)
+        # ax.set_xlabel("x")
+        # ax.set_ylabel("y")
+        # ax.set_title("Correlated data")
+        ax.legend()
 
 
 # Alex ----------------------------------------------------------------------------------------------------------------------   

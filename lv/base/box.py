@@ -27,7 +27,7 @@ class Box():
         if volta: 
             slurm = " -p v100"
         else:
-            slurm = " -p elephant --mem {mem}g"
+            slurm = f" -p elephant --mem {mem}g"
         if sbatch:
             slurm = "sbatch" + slurm
         elif srun:
@@ -68,7 +68,37 @@ class Box():
         for R in c.Rnms:
             self.get_rbf_cmd(R, boszR=boszR)
 
-    def get_noise_cmd(self, R, W="RedM", N=10000, pixelR=5000, mag_lim=[17,19]):
+    
+
+    def get_pca_cmd(self, R, W="RedM", pixelR=5000, mag_lim=19, dataset_name=None):
+        print(R, sep="/n/n")
+        pp = c.dRs[R]
+        w  = c.dWw[W][0]
+        base = f"./scripts/prepare.sh {self.slurm} model bosz pfs --config ./configs/infer/pfs/bosz/nowave/prepare/train.json"
+        arm  = f"  ./configs/infer/pfs/bosz/nowave/inst_pfs_{w}.json"
+        size = f" --chunk-size 1 "
+        inD  = f" --in /scratch/ceph/dobos/data/pfsspec/import/stellar/grid/bosz_50000"
+        
+        if self.dataset_name is None: self.dataset_name = f"bosz_R{pixelR}_{W}_m{mag_lim}"
+        outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{c.dRR[R]}/{self.dataset_name}"
+        para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
+        norm = f" --norm none"
+        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {mag_lim} "
+        grid = f" --sample-mode grid"
+
+        cmd = base + arm + size + inD + outD + para + norm + mag + grid
+        print(cmd)
+
+    def step3_BuildPCA(self, R=None, W="RedM", pixelR=5000, mag_lim=19):
+        self.mag_lim=mag_lim
+        self.dataset_name = f"bosz_R{pixelR}_{W}_m{self.mag_lim}"
+        self.pixelR=pixelR
+        RList= c.Rnms if R is None else [R]
+        for R in RList:
+            self.get_pca_cmd(R, W=W, pixelR=pixelR, mag_lim=mag_lim, dataset_name=self.dataset_name)
+
+
+    def get_noise_cmd(self, R, W="RedM", N=10000, pixelR=5000):
         assert N >= 1000
         print(R, sep="/n/n")
         pp = c.dRs[R]
@@ -78,12 +108,13 @@ class Box():
         arm  = f"  ./configs/infer/pfs/bosz/nowave/inst_pfs_{w}.json"
         size = f" --chunk-size 1000 --sample-count {N}"
         inD  = f" --in /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_{self.boszR}_{c.dRR[R]}/rbf"
-        self.mag_name=f"_m{mag_lim[0]}_{mag_lim[1]}"
-        self.dataset_name = f"bosz_R{pixelR}_{W}_{nn}k{self.mag_name}"
+        self.dataset_name = f"rbf_R{pixelR}_{W}_{nn}k_m{self.mag_lim}"
         outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{c.dRR[R]}/{self.dataset_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
-        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {mag_lim[0]} {mag_lim[1]}"
-        cmd = base + arm + size + inD + outD + para + mag
+        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {self.mag_lim-1} {self.mag_lim+1}"
+        norm = f" --norm none"
+        
+        cmd = base + arm + size + inD + outD + para + mag + norm
         print(cmd)
         self.pixelR=pixelR
 
@@ -91,13 +122,15 @@ class Box():
         for R in c.Rnms:
             self.get_noise_cmd(R, N=N)
 
-    def load_dataset(self, R, W="RedM", N=1000, DATA_PATH=None):
+    def load_dataset(self, R, W="RedM", N=None, DATA_PATH=None, grid=False):
         RR = c.dRR[R]
-        nn = N // 1000
+        if grid:
+            name = f"bosz_R{self.pixelR}_{W}_m{self.mag_lim}"
+        else:
+            nn = N // 1000
+            name = f"rbf_R{self.pixelR}_{W}_{nn}k_m{self.mag_lim}"
         if DATA_PATH is None: 
-            DATA_PATH=f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/{self.dataset_name}/dataset.h5"
-
-        DATA_PATH = "/scratch/ceph/dobos/data/pfsspec/train/pfs_stellar_model/dataset/BHB/bosz_R5000_RedM_1k_m17_19/dataset.h5"
+            DATA_PATH=f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/{name}/dataset.h5"
 
         with h5py.File(DATA_PATH, "r") as f:
             wave = f["wave"][()]
@@ -119,8 +152,8 @@ class Box():
             f.create_dataset(f"error", data=error, shape=error.shape)          
             f.create_dataset(f"snr", data=snr, shape=snr.shape)
 
-    def convert(self, R, W="RedM", N=1000, boszR=5000, step=20):
-        wave, flux, error, para, snr = self.load_dataset(R, W=W, N=N)  
+    def convert(self, R, W="RedM", N=1000, boszR=5000, step=20, grid=0):
+        wave, flux, error, para, snr = self.load_dataset(R, W=W, N=N, grid=0)  
         RR = c.dRR[R]
         nn = N // 1000
         SAVE_DIR = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/"

@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from .dnn import DNN 
 from tqdm import tqdm
 from lv.constants import Constants as c
-from lv.util import Util as u
+from lv.util import Util
 from sklearn.preprocessing import MinMaxScaler
 from matplotlib.patches import Rectangle
 from matplotlib.patches import Patch
@@ -36,6 +36,7 @@ class BaseDNN():
         self.dRs = c.dRs
         self.dR = c.dRR
         self.dRC = c.dRC
+        self.Util = Util()
         
         self.Ws = None
         self.Rs = None
@@ -85,17 +86,17 @@ class BaseDNN():
         if isinstance(fluxs, list) or (len(fluxs.shape)>1):
             SNs = []
             for nsflux in fluxs:
-                SNs.append(u.getSN(nsflux))
+                SNs.append(self.Util.getSN(nsflux))
             return np.mean(SNs)
         else:
             print("not list")
-            return u.getSN(fluxs)
+            return self.Util.getSN(fluxs)
 
     def resample(self, wave, fluxs, step=20, verbose=1):
-        return u.resample(wave, fluxs, step=step, verbose=verbose)
+        return self.Util.resample(wave, fluxs, step=step, verbose=verbose)
 
     def resampleFlux_i(self, flux, step=20):
-        return u.resampleFlux_i(flux, step=step)
+        return self.Util.resampleFlux_i(flux, step=step)
 
     def load_R_dataset(self, R, W="RedM",N=10000, step=None):
         if step is None: step = self.step
@@ -206,7 +207,6 @@ class BaseDNN():
         # stats={}
         # stats["mean"], stats["var"]=s.mean(), s.std()
         # stats["v"] = v
-
         return stats
 
     # def prepare_snr_flux(self, R0, W="RedM", N=100, idx=0, plot=1):
@@ -428,6 +428,7 @@ class BaseDNN():
             # if Ps is not None: ax.set_title(f"[M/H] = {Ps[0]:.2f}, Teff={int(Ps[1])}K, logg={Ps[2]:.2f}")
             if ylbl: ax.set_ylabel(self.Pnms[j])
 
+    
 
 
     def plot_box_R0_R1_v0(self, R0, R1, data=None, Ps=None, SN=None,  n_box=2, ylbl=1,  axs=None, color=None):

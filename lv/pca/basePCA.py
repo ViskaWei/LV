@@ -6,12 +6,14 @@ from tqdm import tqdm
 
 from matplotlib import pyplot as plt
 from lv.constants import Constants as c
-from lv.util import Util as u
+from lv.util import Util
 
 
 class BasePCA(object):
-    def __init__(self, dataset_nm="dataset"):
-        self.dataset_nm=dataset_nm
+    def __init__(self, dataset_nm="dataset", prepro=1, CUDA=1):
+        self.DATADIR = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/{dataset_nm}/"
+        self.prepro=prepro
+        self.CUDA=CUDA
         # self.top= None
         self.dWs = c.dWs
         # self.dRs = c.dRs
@@ -28,10 +30,11 @@ class BasePCA(object):
         self.npcFlux = {}
         self.nwave = None
         self.W = None
+        self.Util = Util()
 
-    def run(self, W, N=1000, top=100, transform=0,name="", save=0):
-        self.prepare_data_W(W, N=N)
-        self.prepare_svd(W, top=top, transform=transform)
+    def run(self, W, Rs=None, N=1000, top=100, transform=0,name="", save=0):
+        self.prepare_data_W(W, Rs, N=N)
+        self.prepare_svd(W, Rs, top=top, transform=transform)
         if save: self.collect_PC(W, name=name)
 
 
@@ -44,35 +47,33 @@ class BasePCA(object):
             self.plot_pcFlux_R(R)
         return self.nVs[R]
 
-    def prepare_data_W(self, W, N=1000):
-        for R in tqdm(self.Rnms):
-            self.prepare_dataset_W_R(W, R, N=N)
+    def prepare_data_W(self, W, Rs=None, N=1000):
+        if Rs is None: Rs = self.Rnms
+        for R in tqdm(Rs):
+            self.prepare_data_W_R(W, R, N=N)
 
-    def load_RBF_W_R(self, W="RML", R=None, N=1000, pdx=None, mags=[17,19]):
-        nn= N // 1000
+    def dataloader_W_R(self, W="RML", R=None, N=None, pdx=None, mag=19):
         RR = self.dR[R]
         Ws = self.dWs[W]
-        magNms = f"_m{mags[0]}_{mags[1]}" if self.dataset_nm=="dataset" else ""
-        DATA_PATH = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/{self.dataset_nm}/{RR}/{Ws[3]}_R{Ws[2]}_{nn}k{magNms}.h5"
-        with h5py.File(DATA_PATH, 'r') as f:
+        DATAPATH = self.DATADIR + f"{RR}/grid/{Ws[3]}_R{Ws[2]}_m{mag}.h5"
+
+        with h5py.File(DATAPATH, 'r') as f:
             wave = f['wave'][()]
             flux = f['logflux'][()]
             pval = f['pval'][()]
-            # error = f['error'][()]
-            # snr =   f['snr'][()]
-        # if pdx is not None: pval = pval[:, pdx]
         print(f"# {RR} flux: {flux.shape}, wave {W}: {wave.shape} ")
         return wave, flux, pval
 
+    def prepro_fn(self, wave, flux):
+        return wave, self.Util.lognorm_flux(flux, step=20)
+
     def prepare_data_W_R(self, W, R, N=10000):
-        wave, flux, pval = self.load_RBF_W_R(W, R, N=N)
+        wave, flux, pval = self.dataloader_W_R(W, R, N=N)
         self.nwave = wave
+        if self.prepro:
+            wave, flux = self.prepro_fn(wave, flux)
         self.nFlux[R] = flux
         self.nPara[R] = pval
-
-    def prepare_data_W(self, W, N):
-        for R in self.Rnms:
-            self.prepare_data_W_R(W, R, N=N)
     
     def prepare_svd_R(self, R, top=100, transform=0):
         flux_R = self.nFlux[R]
@@ -83,12 +84,16 @@ class BasePCA(object):
             self.pcFlux[R] = cp.dot(flux_Rc, Vs.T)
             self.npcFlux[R] = cp.asnumpy(self.pcFlux[R])
 
-    def prepare_svd(self, W, top=100, transform=0):
-        for R in self.Rnms:
+    def prepare_svd(self, W, Rs=None, top=100, transform=0):
+        if Rs is None: Rs = self.Rnms
+        for R in Rs:
             self.prepare_svd_R(R, top=top, transform=transform)
 
     def get_eigv(self, X, top=5):
-        _,_,v = self._svd(X)
+        if self.CUDA:
+            _,_,v = self._svd(X)
+        else:
+            _,_,v = np.linalg.svd(X)
         return v[:top] 
 
     def _svd(self, X):
@@ -119,6 +124,21 @@ class BasePCA(object):
         plt.xlabel(f"PC{idx0}")
         plt.ylabel(f"PC{idx1}")
         plt.colorbar()
+
+    def plot_V_R(self, R,top=5, step=0.3, ax=None):
+        self.plot_V(self.nVs[R], top=top, step=step, ax=ax)
+
+    def plot_V(self, nv, top=5, step=0.3, ax=None):
+        size = top // 5
+        if ax is None: ax = plt.subplots(1, figsize=(16,5 * size),facecolor="w")[1]
+        for i in range(min(len(nv),top)):
+            ax.plot(self.nwave, nv[i] + step*(i+1))
+        self.get_wave_axis(self.nwave, ax=ax)
+        
+    def get_wave_axis(self, wave, ax=None, xgrid=True):
+        ax.set_xlim(wave[0]-1, wave[-1]+2)
+        ax.set_xticks(np.arange(int(wave[0]), np.ceil(wave[-1]), 200))
+        ax.xaxis.grid(xgrid)
 
     # def plot_nV
 

@@ -27,7 +27,7 @@ logging.getLogger('tensorflow').setLevel(logging.FATAL)
 
 class BaseDNN():
     def __init__(self):
-        self.dataDir = "/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset_5000/"
+        self.dataDir = "/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/"
         self.Rnms = c.Rnms
         self.nR = len(self.Rnms) 
         self.RRnms = c.RRnms
@@ -37,6 +37,8 @@ class BaseDNN():
         self.dR = c.dRR
         self.dRC = c.dRC
         self.Util = Util()
+
+        self.mag=19
         
         self.Ws = None
         self.Rs = None
@@ -97,54 +99,6 @@ class BaseDNN():
 
     def resampleFlux_i(self, flux, step=20):
         return self.Util.resampleFlux_i(flux, step=step)
-
-    def load_R_dataset(self, R, W="RedM",N=10000, step=None):
-        if step is None: step = self.step
-        nn=N // 1000
-        RR = self.dR[R]
-        DATA_PATH = f"{self.dataDir}/{RR}/bosz_5000_{W}_{nn}k/dataset.h5"  
-        wave, flux, error, para, dfsnr = self.load_dataset(DATA_PATH)
-        if step is not None:
-            wave, flux = self.resample(wave, flux, step=step, verbose=1)
-        return wave, flux, error, para, dfsnr
-
-    # def load_dataset(self, DATA_PATH):
-    #     with h5py.File(DATA_PATH, "r") as f:
-    #         wave = f["wave"][()]
-    #         flux = f["flux"][()]
-    #         mask = f["mask"][()]
-    #         error = f["error"][()]
-    #     assert (np.sum(mask) == 0)
-    #     dfparams = pd.read_hdf(DATA_PATH, "params")    
-    #     para = dfparams[['Fe_H','T_eff','log_g','C_M','O_M']].values
-    #     dfsnr = dfparams[['redshift','mag','snr']]
-    #     return wave, flux, error, para, dfsnr
-
-    def load_PC_W(self, W=None, Rs=None, top=100):
-        if Rs is None: Rs = self.Rnms
-        Ws = self.dWs[W]
-        PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}.h5"
-        dPC = {}
-        with h5py.File(PC_PATH, 'r') as f:
-            for R in Rs:
-                PC = f[f'PC_{R}'][()]
-                dPC[R] = PC[:top]
-        nPixel = PC.shape[1]        
-        return dPC, nPixel
-
-    def load_RBF_W_R(self, W="RML", R=None, N=1000):
-        nn= N // 1000
-        RR = self.dR[R]
-        Ws = self.dWs[W]
-        DATA_PATH = f"{self.dataDir}/{RR}/{Ws[3]}_R{Ws[2]}_{nn}k.h5"
-        with h5py.File(DATA_PATH, 'r') as f:
-            wave = f['wave'][()]
-            flux = f['logflux'][()]
-            pval = f['pval'][()]
-            error = f['error'][()]
-            snr =   f['snr'][()]
-        if self.pdx is not None: pval = pval[:,self.pdx]
-        return wave, flux, error, pval, snr
 
     def load_snr_flux(self, W, R0, SNR_PATH=None, idx=0):
         RR = self.dR[R0]
@@ -254,38 +208,76 @@ class BaseDNN():
 
 
 
-#-----------------------------------------------
-    def process_RBF_W_R(self, W, R, N=1000, isNoisy=1):
-        _, flux, error, pval, snr = self.load_RBF_W_R(W=W, R=R, N=N)
-        if isNoisy:
-            flux = self.add_noise(flux, error)
-        return flux, pval, snr
-    
-    def prepare_testset_W(self, W, N_test, isNoisy=1):
-        for R0 in self.Rnms:
-            self.f_tests[R0],self.p_tests[R0], self.s_tests[R0] =self.process_RBF_W_R(W, R0, N_test, isNoisy=isNoisy)
-        for R0 in self.Rnms:
+#dataloader-----------------------------------------------
+    def pcloader_W(self, W=None, Rs=None, top=100):
+        if Rs is None: Rs = self.Rnms
+        Ws = self.dWs[W]
+        PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}.h5"
+        dPC = {}
+        with h5py.File(PC_PATH, 'r') as f:
+            for R in Rs:
+                PC = f[f'PC_{R}'][()]
+                dPC[R] = PC[:top]
+        nPixel = PC.shape[1]        
+        return dPC, nPixel
+
+    def dataloader_W_R(self, W="RML", R=None, N=None, mag=None, grid=0):
+        if mag is None: mag = self.mag
+        RR = self.dR[R]
+        Ws = self.dWs[W]
+        if grid:
+            DATA_PATH = f"{self.dataDir}/{RR}/grid/{Ws[3]}_R{Ws[2]}_m{mag}.h5"
+        elif not grid:
+            nn= N // 1000
+            DATA_PATH = f"{self.dataDir}/{RR}/rbf/{Ws[3]}_R{Ws[2]}_{nn}k_m{mag}.h5"
+        with h5py.File(DATA_PATH, 'r') as f:
+            wave = f['wave'][()]
+            flux = f['logflux'][()]
+            pval = f['pval'][()]
+            error = f['error'][()]
+            snr =   f['snr'][()]
+        if self.pdx is not None: pval = pval[:,self.pdx]
+        if grid and (N is not None): 
+            idx = np.random.choice(len(flux), N)
+            flux, pval, error, snr = flux[idx], pval[idx], error[idx], snr[idx]
+        return wave, flux, error, pval, snr
+
+    def process_data_W_R(self, W, R, N=None, grid=0, mag=None, isNoisy=1):
+        _, fluxLs, error, pval, snr = self.dataloader_W_R(W=W, R=R, N=N, grid=grid, mag=mag)
+        if isNoisy: 
+            fluxLs = self.add_noise(fluxLs, error)
+        lognorm_fluxLs = self.Util.lognorm_flux(fluxLs, step=20)
+        return lognorm_fluxLs, pval, snr
+
+    def prepare_testset_W(self, W, Rs, N_test=None, grid=0, isNoisy=1):
+        if Rs is None: Rs = self.Rnms
+        for R0 in Rs:
+            self.f_tests[R0],self.p_tests[R0], self.s_tests[R0] =self.process_data_W_R(W, R0, N=N_test, grid=grid, isNoisy=isNoisy)
+        for R0 in Rs:
             x = {}
-            for R1 in self.Rnms:
+            for R1 in Rs:
                 x[R1] = self.transform_W_R(self.f_tests[R1], W, R0) # project to R0 PC
             self.x_tests[R0] = x
 
 
-    def prepare_trainset_W(self,W, N_train, isNoisy=1):
-        for R0 in self.Rnms:
-            self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_RBF_W_R(W, R0, N=N_train, isNoisy=isNoisy)
+    def prepare_trainset_W(self,W, Rs=None, N_train=None, grid=0, isNoisy=1):
+        if Rs is None: Rs = self.Rnms
+        for R0 in Rs:
+            self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_data_W_R(W, R0, N=N_train, grid=grid, isNoisy=isNoisy)
             self.x_trains[R0] = self.transform_W_R(self.f_trains[R0], W, R0) # project to R0 PC
             self.y_trains[R0] = self.scale(self.p_trains[R0], R0)
 
-# noise ---------------------------------------------------------------------------------
-    def add_noise(self, fluxs, errs,  rate=1.0, step=20):
-        nsflux = np.zeros_like(fluxs)
-        for ii, flux in enumerate(fluxs):
-            noiseL = self.get_noise_i(flux, errs[ii], rate=rate, step=step)
-            nsflux[ii]= flux + noiseL
-        return nsflux
 
-    def get_noise_i(self, flux, err, rate=1.0, step=20):
+
+# noise ---------------------------------------------------------------------------------
+    def add_noise(self, fluxLs, errs,  rate=1.0, step=20):
+        fluxNLs = np.zeros_like(fluxLs)
+        for ii, fluxL in enumerate(fluxLs):
+            noiseL = self.get_noise_i(errs[ii], rate=rate, step=step)
+            fluxNLs[ii]= fluxL + noiseL
+        return fluxNLs
+
+    def get_noise_i(self, err, rate=1.0, step=20):
         noise = rate * np.random.normal(0, err)
         noiseL = self.resampleFlux_i(noise, step=step)
         return noiseL
@@ -322,27 +314,8 @@ class BaseDNN():
   
 
 
-    ############################################ DNN ##########################################
 
-    def prepare_DNN(self, input_dim=None, lr=0.01, dp=0.0):
-        dnn = DNN()
-        if input_dim is None: input_dim = self.n_ftr
-        dnn.set_model_shape(input_dim, len(self.pdx))
-        dnn.set_model_param(lr=lr, dp=dp, loss='mse', opt='adam', name='')
-        dnn.build_model()
-        return dnn
-
-    def predict(self, data, R, dnn=None):
-        if dnn is None: dnn = self.dnns[R]
-        y_preds = dnn.model.predict(data)
-        return self.rescale(y_preds, R)
-
-    def trans_predict(self, data, W, R0, dnn=None):
-        pc_data = self.transform_W_R(data, W, R0)
-        p_pred = self.predict(pc_data, R0, dnn=None)
-        return p_pred
-
-
+#plot ellipse ---------------------------------------------------------------------------------
     def flow_fn(self,paras, center):
         fpara=self.para_fn(paras, c="r",s=10)
         fmean=self.para_fn(center, c="g",s=10)
@@ -380,6 +353,8 @@ class BaseDNN():
     #         ax.scatter(data[:,i], data[:,j],s=1, c='k')
     #         for R in self.Rnms:
     #             # p_pred = self.
+
+#plot box ---------------------------------------------------------------------------------
 
     def plot_pred_fn_R0_R1(self, R0, R1):
         data = self.p_preds[R0][R1]
@@ -428,7 +403,19 @@ class BaseDNN():
             # if Ps is not None: ax.set_title(f"[M/H] = {Ps[0]:.2f}, Teff={int(Ps[1])}K, logg={Ps[2]:.2f}")
             if ylbl: ax.set_ylabel(self.Pnms[j])
 
-    
+    def plot_pred_box_R0(self, R0,  n_box=2,  axs=None, large=0):
+        Rs = self.p_preds[R0].keys()
+        nR = len(Rs)
+        if axs is None: 
+            if large:
+                f, axss = plt.subplots(nR, self.npdx, figsize=(16, 4*nR), sharey="col", sharex="col", facecolor="w")
+            else:
+                f, axss = plt.subplots(self.npdx, nR, figsize=(20, 4*self.npdx), sharey="row", sharex="row", facecolor="w")
+                axss = axss.T
+
+        for nn, R1 in enumerate(Rs):
+            fn = self.plot_pred_fn_R0_R1(R0, R1)
+            self.plot_box_R0_R1(R0, R1, [fn], n_box=n_box, ylbl=0, axs=axss[nn])
 
 
     def plot_box_R0_R1_v0(self, R0, R1, data=None, Ps=None, SN=None,  n_box=2, ylbl=1,  axs=None, color=None):
@@ -494,18 +481,18 @@ class BaseDNN():
             ax.legend(handles = legend_ele)
             if ylbl: ax.set_ylabel(self.Pnms[j])
 
-    def plot_box_R0(self, R0, data=None, Ps=None, SN=None, n_box=2,  axs=None, large=0):
-        if axs is None: 
-            if large:
-                f, axss = plt.subplots(self.nR,self.npdx, figsize=(16, 4*self.nR), sharey="col", sharex="col", facecolor="w")
-            else:
-                f, axss = plt.subplots(self.npdx, self.nR, figsize=(20, 4*self.npdx), sharey="row", sharex="row", facecolor="w")
-                axss = axss.T
+    # def plot_box_R0(self, R0, data=None, Ps=None, SN=None, n_box=2,  axs=None, large=0):
+    #     if axs is None: 
+    #         if large:
+    #             f, axss = plt.subplots(self.nR,self.npdx, figsize=(16, 4*self.nR), sharey="col", sharex="col", facecolor="w")
+    #         else:
+    #             f, axss = plt.subplots(self.npdx, self.nR, figsize=(20, 4*self.npdx), sharey="row", sharex="row", facecolor="w")
+    #             axss = axss.T
                 
-        for i, axs in enumerate(axss):
-            R1 = self.Rnms[i]
-            self.plot_box_R0_R1(R0, R1, data=data, Ps=Ps, SN=SN, n_box=n_box, axs=axs, ylbl = (i==0))
-        # plt.tight_layout()
+    #     for i, axs in enumerate(axss):
+    #         R1 = self.Rnms[i]
+    #         self.plot_box_R0_R1(R0, R1, data=data, Ps=Ps, SN=SN, n_box=n_box, axs=axs, ylbl = (i==0))
+    #     # plt.tight_layout()
 
     def plot_pred(self, R0):
         l = len(self.pdx)
@@ -529,7 +516,8 @@ class BaseDNN():
             # axs[1][ii].legend()
         axs[0].set_ylabel(f"pred")
         # axs[1][0].set_ylabel(f"$\Delta$pred")
-########################################## overlap ##########################################
+
+#overlap --------------------------------------------------
     def get_overlap_R0_R1(self, R0, R1):
         p_pred = self.p_preds[R0][R1]
         mask = True
@@ -540,31 +528,50 @@ class BaseDNN():
 
     def get_overlap_R0(self, R0):
         overlaps = {}
-        for R1 in self.Rnms:
+        for R1 in self.p_preds[R0].keys():
             overlaps[R1] = self.get_overlap_R0_R1(R0, R1)
         return overlaps
 
     def get_overlap(self):
         overlaps = {}
-        for R0 in self.Rnms:
+        for R0 in self.p_preds.keys():
             overlaps[R0] = self.get_overlap_R0(R0)
         return overlaps
 
     def get_overlap_mat(self, plot=1):
-        CT = np.zeros((len(self.Rnms), len(self.Rnms)))
-        for ii, R0 in enumerate(self.Rnms):
-            for jj, R1 in enumerate(self.Rnms):
-                # if ii == jj:
-                #     CT[ii,jj] = 1 - self.get_overlap_R0_R1(R0, R1)
-                # else:
+        Rs = self.p_preds.keys()
+        nR = len(Rs)
+        CT = np.zeros((nR,nR))
+        for ii, R0 in enumerate(Rs):
+            for jj, R1 in enumerate(Rs):
                 CT[ii][jj] = self.get_overlap_R0_R1(R0, R1)
-
         self.CT = CT
-        if plot: self.plot_heatmaps()
+        if plot: self.plot_heatmaps(Rs)
 
-    def plot_heatmap_v1(self, size=2000, cut=0.005, ax=None):
-        nn = len(self.Rnms)
-        xv, yv = np.meshgrid(np.arange(nn), np.arange(nn))
+
+
+    def plot_heatmap(self, Rs=None, ax=None):
+        if ax is None:
+            f, ax = plt.subplots(figsize=(6,5), facecolor="gray")
+        sns.heatmap(self.CT, vmax=0.1, ax=ax, annot=True, cmap="inferno")
+        RR = [self.dR[R] for R in Rs]
+        ax.set_xticklabels(RR)
+        ax.set_yticklabels(RR)
+        ax.set_title("overlap Heatmap")
+
+    def plot_heatmaps(self, Rs=None):
+        plt.style.use('seaborn-darkgrid')
+        f, axs= plt.subplots(1,2,figsize=(12,5), facecolor="w", gridspec_kw={'width_ratios': [6, 5]})
+        self.plot_heatmap(Rs=Rs, ax=axs[0])
+        self.plot_heatmap_v1(Rs=Rs, ax=axs[1])
+
+    def plot_heatmap_v1(self, Rs=None, size=2000, cut=0.005, ax=None):
+        if Rs is None: 
+            RRs = self.RRnms
+        else:
+            RRs = [self.dR[R] for R in Rs]
+        nR = len(RRs)
+        xv, yv = np.meshgrid(np.arange(nR), np.arange(nR))
         yv = np.flipud(yv)
         if ax is None: 
             f, ax = plt.subplots(figsize=(5,5)) #, facecolor="gray"
@@ -583,23 +590,29 @@ class BaseDNN():
         for ii in range(mask.sum()):            
             ax.annotate(f"{ctm[ii]}", xy=(xvm[ii], yvm[ii]), xycoords="data", fontsize=15, ha='center')
         
-        xlbl = [self.RRnms[0], *self.RRnms]
+        xlbl = [RRs[0], *RRs]
         ax.set_xticklabels(xlbl)
-        ylbl = [self.RRnms[0], *self.RRnms[::-1]]
+        ylbl = [RRs[0], *RRs[::-1]]
         ax.set_yticklabels(ylbl, rotation=90,  verticalalignment='center', horizontalalignment='right')
         ax.set_title(f"Error > {100*cut}%")
 
-    def plot_heatmap(self, ax=None):
-        if ax is None:
-            f, ax = plt.subplots(figsize=(6,5), facecolor="gray")
-        sns.heatmap(self.CT, vmax=0.1, ax=ax, annot=True, cmap="inferno")
-        ax.set_xticklabels(self.RRnms)
-        ax.set_yticklabels(self.RRnms)
-        ax.set_title("overlap Heatmap")
 
-    def plot_heatmaps(self):
-        plt.style.use('seaborn-darkgrid')
-        f, axs= plt.subplots(1,2,figsize=(12,5), facecolor="w", gridspec_kw={'width_ratios': [6, 5]})
-        self.plot_heatmap(ax=axs[0])
-        self.plot_heatmap_v1(ax=axs[1])
+#DNN--------------------------------------------------
 
+    def prepare_DNN(self, input_dim=None, lr=0.01, dp=0.0):
+        dnn = DNN()
+        if input_dim is None: input_dim = self.n_ftr
+        dnn.set_model_shape(input_dim, len(self.pdx))
+        dnn.set_model_param(lr=lr, dp=dp, loss='mse', opt='adam', name='')
+        dnn.build_model()
+        return dnn
+
+    def predict(self, data, R, dnn=None):
+        if dnn is None: dnn = self.dnns[R]
+        y_preds = dnn.model.predict(data)
+        return self.rescale(y_preds, R)
+
+    def trans_predict(self, data, W, R0, dnn=None):
+        pc_data = self.transform_W_R(data, W, R0)
+        p_pred = self.predict(pc_data, R0, dnn=None)
+        return p_pred

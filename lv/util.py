@@ -23,6 +23,17 @@ class Util():
         for ii, P in enumerate(Pnms):
             dfp = dfp[dfp[P]==Ps[ii]]
         return dfp.index
+
+
+    @staticmethod
+    def lognorm_flux(fluxs, step=20):
+        norm_flux = np.divide(fluxs, fluxs.mean(1)[:,None])
+        LNflux = np.log(norm_flux)
+        return LNflux
+
+    @staticmethod
+    def lognorm_flux_i(flux, step=20):
+        return np.log(np.divide(flux, flux.mean()))
 # ----------------------------------------------------------
     @staticmethod
     def get_flux_in_Wrange(wave, flux, Ws):

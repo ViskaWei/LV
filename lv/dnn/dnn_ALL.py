@@ -12,27 +12,29 @@ from lv.dnn.baseDNN import BaseDNN
 
 
 class DNN_ALL(BaseDNN):
-    def __init__(self, top=100, pdx=[0,1,2], N_test=1000):
+    def __init__(self, grid=0, top=100, pdx=[0,1,2], N_test=1000):
         super().__init__()
         self.pdx=pdx
         self.npdx=len(pdx)
         self.top=top
         self.N_test=N_test
         self.Wnms = ["RML"]
+        self.grid=grid
         # self.Wnms = ["BL","RML","NL"]
         self.n_ftr = top * len(self.Wnms)
 
 
-    def prepare(self, N_train=10000, isNoisy=1):
-        self.load_PCs(top=self.top)
+    def prepare(self, Rs=None, N_train=None, grid=0, isNoisy=1):
+        self.load_PCs(Rs=Rs, top=self.top)
         self.setup_scalers(self.pdx)
         for W in self.Wnms:
-            self.prepare_trainset_W(W, N_train, isNoisy)
-            self.prepare_testset_W(W, self.N_test, isNoisy)
+            self.prepare_trainset_W(W, Rs, N_train, grid, isNoisy)
+            self.prepare_testset_W(W, Rs, self.N_test, grid, isNoisy)
 
-    def load_PCs(self, top=None):
+
+    def load_PCs(self, Rs=None, top=None):
         for W in self.Wnms:
-            self.dPC[W], self.dPxl[W] = self.load_PC_W(W=W, Rs=None, top=top)
+            self.dPC[W], self.dPxl[W] = self.pcloader_W(W=W, Rs=Rs, top=top)
 
     
     def run_R0(self, R0, top = None, lr=0.01, dp=0.01, ep=1, verbose=0):
@@ -44,11 +46,11 @@ class DNN_ALL(BaseDNN):
             x_test = x_test[:, :top]
             p_preds_R0[R] = self.predict(x_test, R0, dnn=dnn)
         self.p_preds[R0] = p_preds_R0
-        self.dCT[R0] = self.get_overlap_R0(R0)
+        self.dCT[R0] = self.get_overlap_R0(R0, self.x_tests[R0].keys())
         self.dnns[R0] = dnn
             
     def run(self, lr=0.01, dp=0.01, ep=1, verbose=0, top=None):
-        for R0 in self.Rnms:
-            self.run_R0(R0, lr=lr, dp=dp, ep=ep, verbose=verbose, top=top)
+        for R0 in self.x_trains.keys():
+            self.run_R0(R0, top=top, lr=lr, dp=dp, ep=ep, verbose=verbose)
         # self.get_contamination_mat(plot=1)
 

@@ -59,7 +59,7 @@ class BasePCA(object):
 
         with h5py.File(DATAPATH, 'r') as f:
             wave = f['wave'][()]
-            flux = f['logflux'][()]
+            flux = f['flux'][()]
             pval = f['pval'][()]
         print(f"# {RR} flux: {flux.shape}, wave {W}: {wave.shape} ")
         return wave, flux, pval

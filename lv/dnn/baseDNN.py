@@ -7,11 +7,14 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from .dnn import DNN 
 from tqdm import tqdm
+from scipy.stats import chi2 as chi2
+
 from lv.constants import Constants as c
 from lv.util import Util
 from sklearn.preprocessing import MinMaxScaler
-from matplotlib.patches import Rectangle
-from matplotlib.patches import Patch
+from matplotlib.patches import Rectangle, Ellipse, Patch
+import matplotlib.transforms as transforms
+
 from matplotlib.lines import Line2D
 from matplotlib import collections  as mc
 
@@ -27,7 +30,7 @@ logging.getLogger('tensorflow').setLevel(logging.FATAL)
 
 class BaseDNN():
     def __init__(self):
-        self.dataDir = "/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/"
+        self.dataDir = "/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset"
         self.Rnms = c.Rnms
         self.nR = len(self.Rnms) 
         self.RRnms = c.RRnms
@@ -36,6 +39,7 @@ class BaseDNN():
         self.dRs = c.dRs
         self.dR = c.dRR
         self.dRC = c.dRC
+        self.dWw = c.dWw
         self.Util = Util()
 
         self.mag=19
@@ -100,9 +104,10 @@ class BaseDNN():
     def resampleFlux_i(self, flux, step=20):
         return self.Util.resampleFlux_i(flux, step=step)
 
+# snr -------------------------------------------------------------
     def load_snr_flux(self, W, R0, SNR_PATH=None, idx=0):
         RR = self.dR[R0]
-        if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/SNR/{W}_N{idx}.h5"    
+        if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/snr/{W}_{idx}.h5"    
         with h5py.File(SNR_PATH, "r") as f:
             wave = f["wave"][:]
             flux = f["flux"][:]
@@ -111,72 +116,48 @@ class BaseDNN():
         with h5py.File(SNR_PATH, "r") as f:
             for snr in self.snrList:
                 dSnr[snr] = f[f"snr_{snr}"][()]
+        if self.pdx is not None: para = para[self.pdx]
         return wave, flux, para, dSnr
 
 
-    def run_snr_flux_idx(self, R0, W="RedM", N=100, idx=0, plot=1):
-        _, flux, para, dSnr = self.load_snr_flux(W, R0, idx=idx)
-        dNSFlux = self.generate_nsflux_snr(flux, N, dSnr)
-        dSNPred, dSNStat = {},{}
-        for snr, nsflux in dNSFlux.items():
-            preds=self.trans_predict(nsflux, "RML", R0)
-            dSNPred[snr] = preds
-            dSNStat[snr] = self.get_preds_stats(preds, para)
-        return dSNPred, dSNStat, para
+    def predict_snr_flux_R0_i(self, i, R0=None, W="RedM", N=100, step=20):
+        wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=i)
+        fluxL = self.Util.resampleFlux_i(flux, step=step)
+        w = self.dWw[W][1]
+        dSN_preds_i = {}
+        for snr, err in dSnr.items():
+            fluxNL = self.add_noise_N(fluxL, err, N=N, step=step)
+            lognorm_fluxL = self.Util.lognorm_flux(fluxNL)
+            dSN_preds_i[snr] = self.trans_predict(lognorm_fluxL, W=w, R0=R0)
+        return dSN_preds_i, para
 
-    def get_preds_stats(self, preds, para):
-        mu, sigma = preds.mean(0), preds.std(0)
-        centered = preds - mu
-        
-        pass
-
-    def run_snr_flux(self, R0, W="RedM",nFlux=2, N=100):
-        dSNPreds={}
-        paras=[]
-        for idx in range(nFlux):
-            dSNPreds[idx], para = self.test_snr_flux_idx(R0, W, N, idx)
+    def predict_snr_flux_R0(self, R0, W="RedM", nSN=10):
+        paras = []
+        dSN_preds = {}
+        for i in nSN:
+            dSN_preds[i], para = self.predict_snr_flux_R0_i(i, R0=R0, W=W)
             paras.append(para)
-        paras=np.vstack(paras)
+            paras=np.vstack(paras)
+        return dSN_preds, paras
 
-        return dSNPreds, paras
 
-    def eval_dSNPred(self, dSNPred, snrList=None):
-        if snrList is None: snrList = self.snrList
-        dSNPred_eval = {}
-        for snr in snrList:
-            self.eval_dSNPred_snr(dSNPred[snr])
-            for R in self.Rnms:
-                dSNPred_eval[snr][R] = self.eval_dSNPred_R(dSNPred[snr], R)
-        return dSNPred_eval
-
-    # def eval_dSNPreds(self, )
-
-    def eval_dSNPred_snr(self, preds):
-        mean = preds.mean(axis=0)
-        centered = preds - mean
-
-        # cov = centered.T.dot(centered)
-        # cov = centered
-        # u,s,v = np.linalg.svd(cov)
-        # stats={}
-        # stats["mean"], stats["var"]=s.mean(), s.std()
-        # stats["v"] = v
-        return stats
-
-    # def prepare_snr_flux(self, R0, W="RedM", N=100, idx=0, plot=1):
-    #     wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=idx)
-    #     nsfluxs = self.generate_nsflux_snr(flux, N, dSnr)
-    #     dStats={}
-    #     # w = self.dWw[W]
-    #     for snr in dSnr.keys():
-    #         dStats[snr] = self.eval_nsflux_snr(nsfluxs[snr], "RML", R0)
-    #     center = [dStats[snr]["mean"] for snr in self.snrList]
-    #     varss = [dStats[snr]["var"] for snr in self.snrList]
-    #     dStats["mean"] = center
-    #     dStats["var"]=varss
-    #     if plot:
-    #         self.plot_snr(dStats, W, R0)
-    #     return dStats
+    def prepare_snr_flux_i(self, i, R0=None, W="RedM", N=100, step=20):
+        wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=i)
+        fluxL = self.Util.resampleFlux_i(flux, step=step)
+        dSN_flux_i = {}
+        for snr, err in dSnr.items():
+            fluxNL = self.add_noise_N(fluxL, err, N=N, step=step)
+            lognorm_fluxL = self.Util.lognorm_flux(fluxNL)
+            dSN_flux_i[snr] = lognorm_fluxL
+        return dSN_flux_i, para
+    
+    def process_snr_flux_i(self, i, W="RedM", R0=None):
+        dSN_flux_i, para = self.prepare_snr_flux_i(i, W=W, R0=R0)
+        dSN_preds = {}
+        w = self.dWw[W][1]
+        for snr, fluxNL in dSN_flux_i.items():
+            dSN_preds[snr] = self.trans_predict(fluxNL, W=w, R0=R0)
+        return dSN_preds, para
 
     def plot_snr(self, dStats, W, R0, ax=None):
         if ax is None: fig, ax = plt.subplots(figsize=(5,4), facecolor='w')
@@ -189,21 +170,8 @@ class BaseDNN():
         ax.legend()
 
 
-    def generate_nsflux_snr(self, flux, N, dSnr):
-        dSNFlux={}
-        for snr, err in dSnr.items():
-            fluxL = self.resampleFlux_i(flux,step=20)
-            dSNFlux[snr] = self.add_noise_N(fluxL, dSnr[snr], N=N)
-        return dSNFlux
+
     
-
-
-    def trans_predict_norm(self, x, W, R, dnn=None):
-        data = self.transform_W_R(x, W, R)
-        if dnn is None: dnn = self.dnns[R]
-        y_preds = dnn.model.predict(data)
-        return y_preds
-
 
 
 
@@ -232,7 +200,7 @@ class BaseDNN():
             DATA_PATH = f"{self.dataDir}/{RR}/rbf/{Ws[3]}_R{Ws[2]}_{nn}k_m{mag}.h5"
         with h5py.File(DATA_PATH, 'r') as f:
             wave = f['wave'][()]
-            flux = f['logflux'][()]
+            flux = f['flux'][()]
             pval = f['pval'][()]
             error = f['error'][()]
             snr =   f['snr'][()]
@@ -285,7 +253,7 @@ class BaseDNN():
     def add_noise_N(self, flux, err, N, rate=1.0, step=20):
         nsflux = np.zeros((N, flux.shape[0]))
         for i in range(N):
-            nsflux[i] = flux + self.get_noise_i(flux, err, rate=rate, step=step)
+            nsflux[i] = flux + self.get_noise_i(err, rate=rate, step=step)
         return nsflux
 
     
@@ -311,17 +279,54 @@ class BaseDNN():
 
     def transform_W_R(self, x, W, R):
         return x.dot(self.dPC[W][R].T)
+
+    def trans_predict_norm(self, x, W, R, dnn=None):
+        data = self.transform_W_R(x, W, R)
+        if dnn is None: dnn = self.dnns[R]
+        y_preds = dnn.model.predict(data)
+        return y_preds
   
 
 
 
 #plot ellipse ---------------------------------------------------------------------------------
-    def flow_fn(self,paras, center):
-        fpara=self.para_fn(paras, c="r",s=10)
-        fmean=self.para_fn(center, c="g",s=10)
-        ftraj=self.traj_fn(paras, center, c="r",lw=2)
 
+    # def process_fluxNL(self, fluxNL, W=None, R0=None, plot=1):
+    #     preds=self.trans_predict(fluxNL, W, R0)
+    #     if plot:
+    #         preds_fn = self.scatter_fn(preds, c=self.dRC[R0], alpha=0.3)
+    #         ellipse_fn = self.get_ellipse_fn(preds)
+    #         return preds, [preds_fn, ellipse_fn]
+    #     return preds
+
+    def get_preds_stats(self, preds):
+        dStats = {}
+        mu, sigma = preds.mean(0), preds.std(0)
+        centered = preds - mu
+
+        dStats["mu"] = mu
+        dStats["sigma"] = sigma
+
+
+    def flow_fn(self,paras, center):
+        fpara=self.scatter_fn(paras, c="r",s=10)
+        fmean=self.scatter_fn(center, c="g",s=10)
+        ftraj=self.traj_fn(paras, center, c="r",lw=2)
         return [fpara,fmean, ftraj]
+
+    def flow_fn_i(self, pred, center, snr=None):
+        mu, sigma = pred.mean(0), pred.std(0)
+        center = np.array([center])
+        MU = np.array([mu])
+        
+        fpred=self.scatter_fn(pred, c="gray",s=10, lgd=f"SNR={snr}")
+        fmean=self.scatter_fn(MU,  c="r",s=10)
+        ftarget=self.scatter_fn(center,  c="g",s=10)
+        ftraj=self.traj_fn(MU, center, c="r",lw=2)
+        add_ellipse = self.get_ellipse_fn(pred,c='b')
+
+
+        return [fpred,fmean, ftarget,ftraj, add_ellipse]
 
     def traj_fn(self, strts, ends, c=None, lw=2):
         nTest=strts.shape[0]
@@ -336,18 +341,53 @@ class BaseDNN():
             return handles
         return fn
 
-    def para_fn(self, para, c=None, s=1):
+    def scatter_fn(self, data, c=None, s=1, lgd=None):
         def fn(i, j, ax, handles=[]):
-            ax.scatter(para[:,i], para[:,j],s=s, c=c)
+            ax.scatter(data[:,i], data[:,j],s=s, c=c)
+            if lgd is not None: 
+                handles.append(Line2D([0], [0], marker='o',color='w', label=lgd, markerfacecolor=c, markersize=10))
             return handles
         return fn
 
     def SN_pred_fn(self, preds, snr=100, c=None):
         fns=[]
         for num, pred in preds.items():
-            fns.append(self.para_fn(pred[snr], c=c))
+            fns.append(self.scatter_fn(pred[snr], c=c))
         return fns
 
+
+    def get_ellipse_params(self, pred):
+        x0s,y0s,s05s,degs = [],[],[],[]
+        for ii in range(self.npdx):
+            jj = 0 if ii ==2 else ii + 1
+            x0, y0, s05, degree = self.get_ellipse_param(pred[:,ii], pred[:,jj])
+            x0s.append(x0)
+            y0s.append(y0)
+            s05s.append(s05)
+            degs.append(degree)
+        return x0s,y0s,s05s,degs
+
+    def get_ellipse_param(self, x, y):
+        x0,y0=x.mean(0),y.mean(0)
+        _, s, v = np.linalg.svd(np.cov(x,y))
+        s05 = s**0.5
+        degree = Util.get_angle_from_v(v)
+        return x0, y0, s05, degree
+
+    def get_ellipse_fn(self, data, c=None, ratio=0.95):
+        x0s,y0s,s05s,degrees = self.get_ellipse_params(data)
+        chi2_val = chi2.ppf(ratio, 2)
+        co = 2 * chi2_val**0.5
+        if c is None: c = "r"
+        def add_ellipse(i, j, ax, handles):
+            x0, y0, s05, degree = x0s[i], y0s[i], s05s[i], degrees[i]
+            e = Ellipse(xy=(0,0),width=co*s05[0], height=co*s05[1], facecolor="none",edgecolor=c,)
+            transf = transforms.Affine2D().rotate_deg(degree).translate(x0,y0) + ax.transData        
+            e.set_transform(transf)
+            ax.add_patch(e)
+            handles.append(Ellipse(xy=(0,0),width=2, height=1, facecolor="none",edgecolor=c,label=f"Chi2_{100*ratio:.0f}%"))
+            return handles
+        return add_ellipse
     # def plot_pred_fn(self, data, R, color=None):
     #     def fn(i, j , ax):
     #         ax.scatter(data[:,i], data[:,j],s=1, c='k')
@@ -387,10 +427,12 @@ class BaseDNN():
             return [self.box_fn_R0(R0, n_box=n_box, c="k")]
 
 
-    def plot_box_R0_R1(self, R0, R1, fns,  n_box=2, ylbl=1,  axs=None):
+    def plot_box_R0_R1(self, R0, R1, fns=[],  data=None, n_box=2, ylbl=1,  axs=None):
         if axs is None: axs = plt.subplots(1, self.npdx,  figsize=(16, 4), facecolor="w")[1]
         box_fns =self.box_fn_R0_R1(R0,R1, n_box=n_box)
         fns = fns + box_fns
+        if data is not None: 
+            fns = fns +  [self.scatter_fn(data, c=self.dRC[R1])]
         for i, ax in enumerate(axs):
             j = 0 if i == 2 else i + 1
             handles, labels = ax.get_legend_handles_labels()
@@ -595,7 +637,6 @@ class BaseDNN():
         ylbl = [RRs[0], *RRs[::-1]]
         ax.set_yticklabels(ylbl, rotation=90,  verticalalignment='center', horizontalalignment='right')
         ax.set_title(f"Error > {100*cut}%")
-
 
 #DNN--------------------------------------------------
 

@@ -150,7 +150,7 @@ class Box():
 
     def save_dataset(self, wave, flux, error, para, snr, SAVE_PATH):
         with h5py.File(SAVE_PATH, "w") as f:
-            f.create_dataset(f"logflux", data=flux, shape=flux.shape)
+            f.create_dataset(f"flux", data=flux, shape=flux.shape)
             f.create_dataset(f"pval", data=para, shape=para.shape)
             f.create_dataset(f"wave", data=wave, shape=wave.shape)  
             f.create_dataset(f"error", data=error, shape=error.shape)          

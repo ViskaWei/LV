@@ -169,6 +169,16 @@ class BaseDNN():
         ax.set_title(W)
         ax.legend()
 
+    def eval_snr(self, R0, snr, N, n_box=0.2):
+        ffs=[]
+        legend=1
+        for i in range(10):
+            dSN_preds_i, para  =self.predict_snr_flux_R0_i(i, R0=R0)
+            preds = dSN_preds_i[snr]
+            ffs = ffs + self.flow_fn_i(preds, para, snr=snr, legend=legend)
+            legend=0
+        self.plot_box_R0_R1(R0,R0, ffs, n_box=n_box)
+
 
 #dataloader-----------------------------------------------
     def pcloader_W(self, W=None, Rs=None, top=100, name=""):
@@ -307,22 +317,23 @@ class BaseDNN():
         dStats["sigma"] = sigma
 
 
-    def flow_fn(self,paras, center):
+    def flow_fn(self,paras, center, legend=0):
         fpara=self.scatter_fn(paras, c="r",s=10)
         fmean=self.scatter_fn(center, c="g",s=10)
         ftraj=self.traj_fn(paras, center, c="r",lw=2)
         return [fpara,fmean, ftraj]
 
-    def flow_fn_i(self, pred, center, snr=None):
+    def flow_fn_i(self, pred, center, snr=None, legend=0):
         mu, sigma = pred.mean(0), pred.std(0)
         center = np.array([center])
         MU = np.array([mu])
+        lgd =f"SNR={snr}" if legend else None
         
-        fpred=self.scatter_fn(pred, c="gray",s=10, lgd=f"SNR={snr}")
+        fpred=self.scatter_fn(pred, c="gray",s=10, lgd=lgd)
         fmean=self.scatter_fn(MU,  c="r",s=10)
         ftarget=self.scatter_fn(center,  c="g",s=10)
         ftraj=self.traj_fn(MU, center, c="r",lw=2)
-        add_ellipse = self.get_ellipse_fn(pred,c='b')
+        add_ellipse = self.get_ellipse_fn(pred,c='b', legend=legend)
 
 
         return [fpred,fmean, ftarget,ftraj, add_ellipse]
@@ -358,7 +369,7 @@ class BaseDNN():
     def get_ellipse_params(self, pred):
         x0s,y0s,s05s,degs = [],[],[],[]
         for ii in range(self.npdx):
-            jj = 0 if ii ==2 else ii + 1
+            jj = 0 if ii ==self.npdx-1 else ii + 1
             x0, y0, s05, degree = self.get_ellipse_param(pred[:,ii], pred[:,jj])
             x0s.append(x0)
             y0s.append(y0)
@@ -373,7 +384,7 @@ class BaseDNN():
         degree = Util.get_angle_from_v(v)
         return x0, y0, s05, degree
 
-    def get_ellipse_fn(self, data, c=None, ratio=0.95):
+    def get_ellipse_fn(self, data, c=None, ratio=0.95, legend=1):
         x0s,y0s,s05s,degrees = self.get_ellipse_params(data)
         chi2_val = chi2.ppf(ratio, 2)
         co = 2 * chi2_val**0.5
@@ -384,7 +395,8 @@ class BaseDNN():
             transf = transforms.Affine2D().rotate_deg(degree).translate(x0,y0) + ax.transData        
             e.set_transform(transf)
             ax.add_patch(e)
-            handles.append(Ellipse(xy=(0,0),width=2, height=1, facecolor="none",edgecolor=c,label=f"Chi2_{100*ratio:.0f}%"))
+            if legend:
+                handles.append(Ellipse(xy=(0,0),width=2, height=1, facecolor="none",edgecolor=c,label=f"Chi2_{100*ratio:.0f}%"))
             return handles
         return add_ellipse
     # def plot_pred_fn(self, data, R, color=None):
@@ -427,24 +439,23 @@ class BaseDNN():
 
 
     def plot_box_R0_R1(self, R0, R1, fns=[],  data=None, n_box=2, ylbl=1,  axs=None):
-        if axs is None: axs = plt.subplots(1, self.npdx,  figsize=(16, 4), facecolor="w")[1]
+        if axs is None: axs = plt.subplots(1, self.npdx,  figsize=(5*self.npdx, 4), facecolor="w")[1]
         box_fns =self.box_fn_R0_R1(R0,R1, n_box=n_box)
         fns = fns + box_fns
         if data is not None: 
             fns = fns +  [self.scatter_fn(data, c=self.dRC[R1])]
         for i, ax in enumerate(axs):
-            j = 0 if i == 2 else i + 1
+            j = 0 if i == self.npdx-1 else i + 1
             handles, labels = ax.get_legend_handles_labels()
             handles = []
             for fn in fns:
                 handles = fn(i, j, ax, handles)
     
             ax.legend(handles = handles)
-            ax.set_xlabel(self.Pnms[i])            
+            ax.set_xlabel(self.Pnms[self.pdx[i]])            
             # ax.annotate(f"{self.dR[R0]}-NN", xy=(0.5,0.8), xycoords="axes fraction",fontsize=15, c=self.dRC[R0])           
             # if Ps is not None: ax.set_title(f"[M/H] = {Ps[0]:.2f}, Teff={int(Ps[1])}K, logg={Ps[2]:.2f}")
-            if ylbl: ax.set_ylabel(self.Pnms[j])
-            return handles
+            if ylbl: ax.set_ylabel(self.Pnms[self.pdx[j]])
 
     def plot_pred_box_R0(self, R0,  n_box=2,  axs=None, large=0):
         Rs = self.p_preds[R0].keys()
@@ -545,7 +556,7 @@ class BaseDNN():
             # if R is not None:
                 # axs[0][ii].scatter(self.YOs[R][:,ii], self.YPs[R][:,ii], c="b",s=1, label=f"{R}")
             ax.plot([self.pMins[R0][ii], self.pMaxs[R0][ii]], [self.pMins[R0][ii], self.pMaxs[R0][ii]], c="r", lw=2)
-            ax.annotate(f"{self.dR[R0]}-NN\n{self.Pnms[ii]}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=20)
+            ax.annotate(f"{self.dR[R0]}-NN\n{self.Pnms[self.pdx[ii]]}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=20)
             # axs[1][ii].plot(np.array([[self.pMin[ii],self.pMin[ii]], [self.pMax[ii]],self.pMax[ii]]), c="r")
             ax.set_xlim(self.pMins[R0][ii], self.pMaxs[R0][ii])
             ax.set_ylim(self.pMins[R0][ii], self.pMaxs[R0][ii])
@@ -596,7 +607,7 @@ class BaseDNN():
     def plot_heatmap(self, Rs=None, ax=None):
         if ax is None:
             f, ax = plt.subplots(figsize=(6,5), facecolor="gray")
-        sns.heatmap(self.CT, vmax=0.1, ax=ax, annot=True, cmap="inferno")
+        sns.heatmap(self.CT, vmax=1.0, ax=ax, annot=True, cmap="inferno")
         RR = [self.dR[R] for R in Rs]
         ax.set_xticklabels(RR)
         ax.set_yticklabels(RR)

@@ -10,9 +10,10 @@ from tqdm import tqdm
 from lv.constants import Constants as c
 from lv.dnn.baseDNN import BaseDNN
 
+np.random.seed(922)
 
 class DNN_ALL(BaseDNN):
-    def __init__(self, grid=0, top=100, pdx=[0,1,2], N_test=1000):
+    def __init__(self, grid=0, top=100, pdx=[0,1,2], N_test=1000, pc_name=""):
         super().__init__()
         self.pdx=pdx
         self.npdx=len(pdx)
@@ -22,6 +23,7 @@ class DNN_ALL(BaseDNN):
         self.grid=grid
         # self.Wnms = ["BL","RML","NL"]
         self.n_ftr = top * len(self.Wnms)
+        self.pc_name = pc_name
 
 
     def prepare(self, Rs=None, N_train=None, grid=0, isNoisy=1):
@@ -34,7 +36,7 @@ class DNN_ALL(BaseDNN):
 
     def load_PCs(self, Rs=None, top=None):
         for W in self.Wnms:
-            self.dPC[W], self.dPxl[W] = self.pcloader_W(W=W, Rs=Rs, top=top)
+            self.dPC[W], self.dPxl[W] = self.pcloader_W(W=W, Rs=Rs, top=top, name=self.pc_name)
 
     
     def run_R0(self, R0, top = None, lr=0.01, dp=0.01, ep=1, verbose=0):

@@ -13,10 +13,14 @@ from matplotlib.patches import Ellipse
 
 class Util():
     def __init__(self):
+        
     
     
         pass
 #--------------------
+
+
+
     @staticmethod
     def get_para_index(Ps, dfp, Pnms=None):
         if Pnms is None: Pnms = dfp.columns
@@ -142,7 +146,14 @@ class Util():
             for fn in fns:
                 fn(ii,jj,ax,[])            
             ax.set_xlabel(lbl[ii])            
-            ax.set_ylabel(lbl[jj])            
+            ax.set_ylabel(lbl[jj])           
+
+    @staticmethod
+    def set_unique_legend(ax):
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax.legend(by_label.values(), by_label.keys())
+     
 
 
 

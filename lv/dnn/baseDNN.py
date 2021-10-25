@@ -170,17 +170,11 @@ class BaseDNN():
         ax.legend()
 
 
-
-    
-
-
-
-
 #dataloader-----------------------------------------------
-    def pcloader_W(self, W=None, Rs=None, top=100):
+    def pcloader_W(self, W=None, Rs=None, top=100, name=""):
         if Rs is None: Rs = self.Rnms
         Ws = self.dWs[W]
-        PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}.h5"
+        PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}{name}.h5"
         dPC = {}
         with h5py.File(PC_PATH, 'r') as f:
             for R in Rs:
@@ -197,7 +191,14 @@ class BaseDNN():
             DATA_PATH = f"{self.dataDir}/{RR}/grid/{Ws[3]}_R{Ws[2]}_m{mag}.h5"
         elif not grid:
             nn= N // 1000
-            DATA_PATH = f"{self.dataDir}/{RR}/rbf/{Ws[3]}_R{Ws[2]}_{nn}k_m{mag}.h5"
+            DATA_PATH = f"{self.dataDir}/{RR}/sample/{Ws[3]}_R{Ws[2]}_{nn}k_m{mag}.h5"
+        wave, flux, pval, error, snr = self.dataloader(DATA_PATH)
+        if grid and (N is not None): 
+            idx = np.random.choice(len(flux), N)
+            flux, pval, error, snr = flux[idx], pval[idx], error[idx], snr[idx]
+        return wave, flux, error, pval, snr
+
+    def dataloader(self, DATA_PATH):
         with h5py.File(DATA_PATH, 'r') as f:
             wave = f['wave'][()]
             flux = f['flux'][()]
@@ -205,10 +206,7 @@ class BaseDNN():
             error = f['error'][()]
             snr =   f['snr'][()]
         if self.pdx is not None: pval = pval[:,self.pdx]
-        if grid and (N is not None): 
-            idx = np.random.choice(len(flux), N)
-            flux, pval, error, snr = flux[idx], pval[idx], error[idx], snr[idx]
-        return wave, flux, error, pval, snr
+        return wave, flux, pval, error, snr
 
     def process_data_W_R(self, W, R, N=None, grid=0, mag=None, isNoisy=1):
         _, fluxLs, error, pval, snr = self.dataloader_W_R(W=W, R=R, N=N, grid=grid, mag=mag)
@@ -234,6 +232,7 @@ class BaseDNN():
             self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_data_W_R(W, R0, N=N_train, grid=grid, isNoisy=isNoisy)
             self.x_trains[R0] = self.transform_W_R(self.f_trains[R0], W, R0) # project to R0 PC
             self.y_trains[R0] = self.scale(self.p_trains[R0], R0)
+
 
 
 
@@ -439,11 +438,13 @@ class BaseDNN():
             handles = []
             for fn in fns:
                 handles = fn(i, j, ax, handles)
+    
             ax.legend(handles = handles)
             ax.set_xlabel(self.Pnms[i])            
             # ax.annotate(f"{self.dR[R0]}-NN", xy=(0.5,0.8), xycoords="axes fraction",fontsize=15, c=self.dRC[R0])           
             # if Ps is not None: ax.set_title(f"[M/H] = {Ps[0]:.2f}, Teff={int(Ps[1])}K, logg={Ps[2]:.2f}")
             if ylbl: ax.set_ylabel(self.Pnms[j])
+            return handles
 
     def plot_pred_box_R0(self, R0,  n_box=2,  axs=None, large=0):
         Rs = self.p_preds[R0].keys()

@@ -39,6 +39,14 @@ class Constants():
     uA = [-0.25,  0.  ,  0.25,  0.5 ]
 
 
+    @staticmethod
+    def get_path(boszR=5000,pixelR=5000, R="B"):
+        bosz=f"/scratch/ceph/dobos/data/pfsspec/import/stellar/grid/bosz_{boszR}"
+        rbf=f"/scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_{boszR}_{dRR[R]}"
+        grid=f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/M31G/grid/bosz_R{pixelR}_RedM_m19"
+        return bosz, rbf
+
+
         # dRs_old={"M": [[-2.5, 0.0], [3500, 5000], [0.0, 2.0],[-0.75, 0.5], [-0.25, 0.5]], 
     #     "W": [[-2.0, 0.0], [5500, 7500], [3.5, 5.0],[-0.75, 0.5], [-0.25, 0.5]],
     #     # "C": [[-2.0, 0.0], [4500, 6000], [4.0, 5.0],[-0.75, 0.5], [-0.25, 0.5]], 

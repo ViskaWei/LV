@@ -10,7 +10,7 @@ from lv.util import Util
 
 
 class BasePCA(object):
-    def __init__(self, dataset_nm="dataset", prepro=1, CUDA=1):
+    def __init__(self, dataset_nm="dataset", grid=1, prepro=1, CUDA=1):
         self.DATADIR = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/{dataset_nm}/"
         self.prepro=prepro
         self.CUDA=CUDA
@@ -31,11 +31,12 @@ class BasePCA(object):
         self.nwave = None
         self.W = None
         self.Util = Util()
+        self.grid=grid
 
     def run(self, W, Rs=None, N=1000, top=100, transform=0,name="", save=0):
         self.prepare_data_W(W, Rs, N=N)
         self.prepare_svd(W, Rs, top=top, transform=transform)
-        if save: self.collect_PC(W, name=name)
+        if save: self.save_W(W, name=name)
 
 
     def run_R(self, W, R, N=None, top=100, transform=0, name="", save=1):
@@ -55,7 +56,11 @@ class BasePCA(object):
     def dataloader_W_R(self, W="RML", R=None, N=None, pdx=None, mag=19):
         RR = self.dR[R]
         Ws = self.dWs[W]
-        DATAPATH = self.DATADIR + f"{RR}/grid/{Ws[3]}_R{Ws[2]}_m{mag}.h5"
+        if N is not None:
+            nn = N // 1000
+            DATAPATH = self.DATADIR + f"{RR}/sample/{Ws[3]}_R{Ws[2]}_{nn}k_m{mag}.h5"
+        else:
+            DATAPATH = self.DATADIR + f"{RR}/grid/{Ws[3]}_R{Ws[2]}_m{mag}.h5"
 
         with h5py.File(DATAPATH, 'r') as f:
             wave = f['wave'][()]
@@ -100,7 +105,7 @@ class BasePCA(object):
        return cp.linalg.svd(X, full_matrices=0)
 
         
-    def collect_PC_W_R(self, W, R, PATH=None, name=""):
+    def save_W_R(self, W, R, PATH=None, name=""):
         Ws = self.dWs[W]
         if PATH is None: 
             PATH=f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}{name}.h5"
@@ -109,7 +114,7 @@ class BasePCA(object):
         with h5py.File(PATH, "w") as f:
             f.create_dataset(f"PC_{R}", data=nV, shape=nV.shape)
 
-    def collect_PC(self, W, PATH=None, name=""):
+    def save_W(self, W, PATH=None, name=""):
         Ws = self.dWs[W]
         if PATH is None: 
             PATH=f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}{name}.h5"

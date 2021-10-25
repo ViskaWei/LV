@@ -32,7 +32,7 @@ class BaseDNN():
     def __init__(self):
         self.dataDir = "/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset"
         self.Rnms = c.Rnms
-        self.nR = len(self.Rnms) 
+        self.nR = len(c.Rnms) 
         self.RRnms = c.RRnms
         self.Pnms = c.Pnms
         self.dWs = c.dWs
@@ -41,6 +41,7 @@ class BaseDNN():
         self.dRC = c.dRC
         self.dWw = c.dWw
         self.Util = Util()
+        self.c = Const()
 
         self.mag=19
         
@@ -71,6 +72,8 @@ class BaseDNN():
         self.dPC = {}
         self.dPxl={}
         self.dCT = {}
+        self.dSNs = {}
+
 
         self.wave = None
         self.resolution = 1000
@@ -105,20 +108,24 @@ class BaseDNN():
         return self.Util.resampleFlux_i(flux, step=step)
 
 # snr -------------------------------------------------------------
-    def load_snr_flux(self, W, R0, SNR_PATH=None, idx=0):
+    def load_dSN_W_R0(self, W, R0, SNR_PATH=None):
+        if W[-1] == "L": W==self.dWw[W][2]
         RR = self.dR[R0]
-        if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/snr/{W}_{idx}.h5"    
-        with h5py.File(SNR_PATH, "r") as f:
-            wave = f["wave"][:]
-            flux = f["flux"][:]
-            para = f["para"][:]
-        dSnr={}
+        if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/snr/{W}.h5"    
+        dSN={}
         with h5py.File(SNR_PATH, "r") as f:
             for snr in self.snrList:
-                dSnr[snr] = f[f"snr_{snr}"][()]
-        if self.pdx is not None: para = para[self.pdx]
-        return wave, flux, para, dSnr
+                dSN[snr] = f[f"snr_{snr}"][()]
+        return dSN
 
+    def load_dSN_W(self, W, Rs=None, SNR_PATH=None):
+        Rs = self.Rnms if Rs is None else [Rs]
+        self.dSN = {}
+        for R0 in Rs:
+            self.dSN[R0] = self.load_dSN_W_R0(W, R0, SNR_PATH)
+
+    def prepare_snr_flux(self, W, R0):
+        dSnr = self.load_dSnr_W_R0
 
     def predict_snr_flux_R0_i(self, i, R0=None, W="RedM", N=100, step=20):
         wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=i)
@@ -130,6 +137,32 @@ class BaseDNN():
             lognorm_fluxL = self.Util.lognorm_flux(fluxNL)
             dSN_preds_i[snr] = self.trans_predict(lognorm_fluxL, W=w, R0=R0)
         return dSN_preds_i, para
+
+    # def load_snr_flux_idx(self, W, R0, SNR_PATH=None, idx=0):
+    #     RR = self.dR[R0]
+    #     if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/snr/{W}_{idx}.h5"    
+    #     with h5py.File(SNR_PATH, "r") as f:
+    #         wave = f["wave"][:]
+    #         flux = f["flux"][:]
+    #         para = f["para"][:]
+    #     dSnr={}
+    #     with h5py.File(SNR_PATH, "r") as f:
+    #         for snr in self.snrList:
+    #             dSnr[snr] = f[f"snr_{snr}"][()]
+    #     if self.pdx is not None: para = para[self.pdx]
+    #     return wave, flux, para, dSnr
+
+
+    # def predict_snr_flux_R0_i(self, i, R0=None, W="RedM", N=100, step=20):
+    #     wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=i)
+    #     fluxL = self.Util.resampleFlux_i(flux, step=step)
+    #     w = self.dWw[W][1]
+    #     dSN_preds_i = {}
+    #     for snr, err in dSnr.items():
+    #         fluxNL = self.add_noise_N(fluxL, err, N=N, step=step)
+    #         lognorm_fluxL = self.Util.lognorm_flux(fluxNL)
+    #         dSN_preds_i[snr] = self.trans_predict(lognorm_fluxL, W=w, R0=R0)
+    #     return dSN_preds_i, para
 
     def predict_snr_flux_R0(self, R0, W="RedM", nSN=10):
         paras = []
@@ -548,19 +581,32 @@ class BaseDNN():
     #         self.plot_box_R0_R1(R0, R1, data=data, Ps=Ps, SN=SN, n_box=n_box, axs=axs, ylbl = (i==0))
     #     # plt.tight_layout()
 
-    def plot_pred(self, R0):
-        l = len(self.pdx)
-        f, axs = plt.subplots(1, l,figsize=(10,4), facecolor="w")
-        for ii, ax in enumerate(axs):
-            ax.scatter(self.p_tests[R0][:,ii], self.p_preds[R0][R0][:,ii], c="k",s=1) #, label=f"{self.Pnms[pdx]}"
+    def plot_pred(self, R0, snrList=[], c="k",s=1, fsize=4):
+        n_snr = len(snrList) + 1
+        f, axss = plt.subplots(n_snr, self.npdx,figsize=(self.npdx* fsize, n_snr*fsize), facecolor="w")
+        SN = self.s_tests[R0]
+        for ii, axs in enumerate(axss.T):
+            x = self.p_tests[R0][:,ii]
+            y = self.p_preds[R0][R0][:,ii]
+            if n_snr==1: axs = [axs]
+            axs[0].scatter(x,y,c=c,s=s, label=f"<SNR>={SN.mean():.0f}") #, label=f"{self.Pnms[pdx]}"
+            axs[0].annotate(f"{self.dR[R0]}-NN\n{self.Pnms[self.pdx[ii]]}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=fsize*3)
+            for jj, snr in enumerate(snrList):
+                idx = np.where((SN > snr-5) & (SN < snr+5))[0]   
+                axs[jj+1].scatter(x[idx], y[idx], s=s, c=c, label=f"SNR={snr}")
+                # axs[jj+1].legend()
+
             # if R is not None:
                 # axs[0][ii].scatter(self.YOs[R][:,ii], self.YPs[R][:,ii], c="b",s=1, label=f"{R}")
-            ax.plot([self.pMins[R0][ii], self.pMaxs[R0][ii]], [self.pMins[R0][ii], self.pMaxs[R0][ii]], c="r", lw=2)
-            ax.annotate(f"{self.dR[R0]}-NN\n{self.Pnms[self.pdx[ii]]}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=20)
-            # axs[1][ii].plot(np.array([[self.pMin[ii],self.pMin[ii]], [self.pMax[ii]],self.pMax[ii]]), c="r")
-            ax.set_xlim(self.pMins[R0][ii], self.pMaxs[R0][ii])
-            ax.set_ylim(self.pMins[R0][ii], self.pMaxs[R0][ii])
-            # ax.legend()
+
+            for ax in axs:
+                ax.plot([self.pMins[R0][ii], self.pMaxs[R0][ii]], [self.pMins[R0][ii], self.pMaxs[R0][ii]], c="r", lw=2)
+                # axs[1][ii].plot(np.array([[self.pMin[ii],self.pMin[ii]], [self.pMax[ii]],self.pMax[ii]]), c="r")
+                ax.set_xlim(self.pMins[R0][ii], self.pMaxs[R0][ii])
+                ax.set_ylim(self.pMins[R0][ii], self.pMaxs[R0][ii])
+
+
+                ax.legend(loc=2)
             # axs[1][ii].scatter(self.y_test_org[:,ii], self.dy_pred[:,ii], c="k",s=1, label=f"{self.R}")
             # if R is not None:
                 # axs[1][ii].scatter(self.YOs[R][:,ii], self.dYPs[R][:,ii], c="b",s=1, label=f"{R}")

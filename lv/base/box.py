@@ -105,15 +105,15 @@ class Box():
 
 
     def get_sample_cmd(self, R, W="RedM", N=10000, pixelR=5000, dmag=1):
-        assert N >= 1000
         print(R, sep="/n/n")
         pp = self.c.dRs[R]
         w  = self.c.dWw[W][0]
-        nn = N // 1000
+        nn = N // 1000 
+        if N <1000: chunk=10
 
         base = f"./scripts/prepare.sh {self.slurm} model bosz-rbf pfs --config ./configs/infer/pfs/bosz/nowave/prepare/train.json"
         arm  = f"  ./configs/infer/pfs/bosz/nowave/inst_pfs_{w}.json"
-        size = f" --chunk-size 1000 --sample-count {N}"
+        size = f" --chunk-size {chunk} --sample-count {N}"
         inD  = f" --in /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_{self.boszR}_{self.c.dRR[R]}/rbf"
         sample_name = f"R{pixelR}_{W}_{nn}k_m{self.mag_lim}"
         outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name}"

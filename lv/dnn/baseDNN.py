@@ -41,7 +41,7 @@ class BaseDNN():
         self.dRC = c.dRC
         self.dWw = c.dWw
         self.Util = Util()
-        self.c = Const()
+        self.c = c()
 
         self.mag=19
         
@@ -55,6 +55,7 @@ class BaseDNN():
         self.f_trains = {}
         self.s_trains = {}
 
+        self.o_tests=  {}
         self.f_tests = {}
         self.s_tests = {}
         self.f_tests = {}
@@ -73,6 +74,9 @@ class BaseDNN():
         self.dPxl={}
         self.dCT = {}
         self.dSNs = {}
+        self.dstep=20
+        self.N_snr=10
+        self.N_fluxNL=100
 
 
         self.wave = None
@@ -109,7 +113,6 @@ class BaseDNN():
 
 # snr -------------------------------------------------------------
     def load_dSN_W_R0(self, W, R0, SNR_PATH=None):
-        if W[-1] == "L": W==self.dWw[W][2]
         RR = self.dR[R0]
         if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/snr/{W}.h5"    
         dSN={}
@@ -121,76 +124,48 @@ class BaseDNN():
     def load_dSN_W(self, W, Rs=None, SNR_PATH=None):
         Rs = self.Rnms if Rs is None else [Rs]
         self.dSN = {}
+        self.dSN_idxs={}
+        self.dSN_paras={}
         for R0 in Rs:
-            self.dSN[R0] = self.load_dSN_W_R0(W, R0, SNR_PATH)
+            # idxs = np.random.randint(0, self.N_test, self.N_snr)
+            self.dSN_idxs[R0] = idxs
+            self.dSN[R0] = self.load_dSN_W_R0(W, R0, idxs, SNR_PATH)
+            self.dSN_paras[R0] = self.p_tests[R0][idxs]
+            
+    def prepare_snr_flux(self, R0=None):
+        dSN_fluxs = {}
+        for ii in range(self.N_snr):
+            dSN_fluxs[ii]= self.prepare_snr_flux_i(ii, R0=R0)
+        return dSN_fluxs
+ 
+    def prepare_snr_flux_i(self, i, R0=None):
+        idx = self.dSN_idxs[R0][i]
+        dSN_fluxs_i = {}
+        fluxL = self.o_tests[R0][idx]
+        for snr in self.snrList:
+            error = self.dSN[R0][snr]
+            fluxLs = self.add_noise_N(fluxL, error, self.N_fluxNL)
+            lognorm_fluxLs = self.Util.lognorm_flux(fluxLs, step=self.dstep)
+            dSN_fluxs_i[snr] = lognorm_fluxLs
+        return dSN_fluxs_i
 
-    def prepare_snr_flux(self, W, R0):
-        dSnr = self.load_dSnr_W_R0
-
-    def predict_snr_flux_R0_i(self, i, R0=None, W="RedM", N=100, step=20):
-        wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=i)
-        fluxL = self.Util.resampleFlux_i(flux, step=step)
-        w = self.dWw[W][1]
+    def process_snr_flux_i(self, i, WL="RML", R0=None):
+        dSN_fluxs_i = self.prepare_snr_flux_i(i, R0=R0)
         dSN_preds_i = {}
-        for snr, err in dSnr.items():
-            fluxNL = self.add_noise_N(fluxL, err, N=N, step=step)
-            lognorm_fluxL = self.Util.lognorm_flux(fluxNL)
-            dSN_preds_i[snr] = self.trans_predict(lognorm_fluxL, W=w, R0=R0)
-        return dSN_preds_i, para
+        for snr, fluxNLs in dSN_fluxs_i.items():
+            dSN_preds_i[snr] = self.trans_predict(fluxNLs, W=WL, R0=R0)
+        return dSN_preds_i
 
-    # def load_snr_flux_idx(self, W, R0, SNR_PATH=None, idx=0):
-    #     RR = self.dR[R0]
-    #     if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/snr/{W}_{idx}.h5"    
-    #     with h5py.File(SNR_PATH, "r") as f:
-    #         wave = f["wave"][:]
-    #         flux = f["flux"][:]
-    #         para = f["para"][:]
-    #     dSnr={}
-    #     with h5py.File(SNR_PATH, "r") as f:
-    #         for snr in self.snrList:
-    #             dSnr[snr] = f[f"snr_{snr}"][()]
-    #     if self.pdx is not None: para = para[self.pdx]
-    #     return wave, flux, para, dSnr
+    def process_snr_flux(self, WL="RML", R0=None):
+        dSN_fluxs = self.prepare_snr_flux(R0)
+        dSN_preds={}
+        for ii, dSN_fluxs_i in enumerate(dSN_fluxs):
+            dSN_preds_i={}
+            for snr, fluxNLs in dSN_fluxs_i.items():
+                dSN_preds_i[snr] = self.trans_predict(fluxNLs, W=WL, R0=R0)
+            dSN_preds[ii] = dSN_preds_i
+        return dSN_preds
 
-
-    # def predict_snr_flux_R0_i(self, i, R0=None, W="RedM", N=100, step=20):
-    #     wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=i)
-    #     fluxL = self.Util.resampleFlux_i(flux, step=step)
-    #     w = self.dWw[W][1]
-    #     dSN_preds_i = {}
-    #     for snr, err in dSnr.items():
-    #         fluxNL = self.add_noise_N(fluxL, err, N=N, step=step)
-    #         lognorm_fluxL = self.Util.lognorm_flux(fluxNL)
-    #         dSN_preds_i[snr] = self.trans_predict(lognorm_fluxL, W=w, R0=R0)
-    #     return dSN_preds_i, para
-
-    def predict_snr_flux_R0(self, R0, W="RedM", nSN=10):
-        paras = []
-        dSN_preds = {}
-        for i in nSN:
-            dSN_preds[i], para = self.predict_snr_flux_R0_i(i, R0=R0, W=W)
-            paras.append(para)
-            paras=np.vstack(paras)
-        return dSN_preds, paras
-
-
-    def prepare_snr_flux_i(self, i, R0=None, W="RedM", N=100, step=20):
-        wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=i)
-        fluxL = self.Util.resampleFlux_i(flux, step=step)
-        dSN_flux_i = {}
-        for snr, err in dSnr.items():
-            fluxNL = self.add_noise_N(fluxL, err, N=N, step=step)
-            lognorm_fluxL = self.Util.lognorm_flux(fluxNL)
-            dSN_flux_i[snr] = lognorm_fluxL
-        return dSN_flux_i, para
-    
-    def process_snr_flux_i(self, i, W="RedM", R0=None):
-        dSN_flux_i, para = self.prepare_snr_flux_i(i, W=W, R0=R0)
-        dSN_preds = {}
-        w = self.dWw[W][1]
-        for snr, fluxNL in dSN_flux_i.items():
-            dSN_preds[snr] = self.trans_predict(fluxNL, W=w, R0=R0)
-        return dSN_preds, para
 
     def plot_snr(self, dStats, W, R0, ax=None):
         if ax is None: fig, ax = plt.subplots(figsize=(5,4), facecolor='w')
@@ -202,15 +177,18 @@ class BaseDNN():
         ax.set_title(W)
         ax.legend()
 
-    def eval_snr(self, R0, snr, N, n_box=0.2):
+    def eval_snr(self, R0, snr, N=None, n_box=0.2):
+        if N is None: N = self.N_snr
         ffs=[]
         legend=1
-        for i in range(10):
-            dSN_preds_i, para  =self.predict_snr_flux_R0_i(i, R0=R0)
+        for i in range(N):
+            dSN_preds_i =self.process_snr_flux_i(i, R0=R0)
             preds = dSN_preds_i[snr]
+            para = self.dSN_paras[R0][i]
             ffs = ffs + self.flow_fn_i(preds, para, snr=snr, legend=legend)
             legend=0
         self.plot_box_R0_R1(R0,R0, ffs, n_box=n_box)
+        self.dFns[R0][snr] = 
 
 
 #dataloader-----------------------------------------------
@@ -256,12 +234,12 @@ class BaseDNN():
         if isNoisy: 
             fluxLs = self.add_noise(fluxLs, error)
         lognorm_fluxLs = self.Util.lognorm_flux(fluxLs, step=20)
-        return lognorm_fluxLs, pval, snr
+        return fluxLs, lognorm_fluxLs, pval, snr
 
     def prepare_testset_W(self, W, Rs, N_test=None, grid=0, isNoisy=1):
         if Rs is None: Rs = self.Rnms
         for R0 in Rs:
-            self.f_tests[R0],self.p_tests[R0], self.s_tests[R0] =self.process_data_W_R(W, R0, N=N_test, grid=grid, isNoisy=isNoisy)
+            self.o_tests[R0], self.f_tests[R0],self.p_tests[R0], self.s_tests[R0] =self.process_data_W_R(W, R0, N=N_test, grid=grid, isNoisy=isNoisy)
         for R0 in Rs:
             x = {}
             for R1 in Rs:
@@ -272,7 +250,7 @@ class BaseDNN():
     def prepare_trainset_W(self,W, Rs=None, N_train=None, grid=0, isNoisy=1):
         if Rs is None: Rs = self.Rnms
         for R0 in Rs:
-            self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_data_W_R(W, R0, N=N_train, grid=grid, isNoisy=isNoisy)
+            _, self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_data_W_R(W, R0, N=N_train, grid=grid, isNoisy=isNoisy)
             self.x_trains[R0] = self.transform_W_R(self.f_trains[R0], W, R0) # project to R0 PC
             self.y_trains[R0] = self.scale(self.p_trains[R0], R0)
 
@@ -715,3 +693,55 @@ class BaseDNN():
         pc_data = self.transform_W_R(data, W, R0)
         p_pred = self.predict(pc_data, R0, dnn=None)
         return p_pred
+
+
+
+
+#else----------------------------------------------
+
+    # def load_snr_flux_idx(self, W, R0, SNR_PATH=None, idx=0):
+    #     RR = self.dR[R0]
+    #     if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/snr/{W}_{idx}.h5"    
+    #     with h5py.File(SNR_PATH, "r") as f:
+    #         wave = f["wave"][:]
+    #         flux = f["flux"][:]
+    #         para = f["para"][:]
+    #     dSnr={}
+    #     with h5py.File(SNR_PATH, "r") as f:
+    #         for snr in self.snrList:
+    #             dSnr[snr] = f[f"snr_{snr}"][()]
+    #     if self.pdx is not None: para = para[self.pdx]
+    #     return wave, flux, para, dSnr
+
+
+    # def predict_snr_flux_R0_i(self, i, R0=None, W="RedM", N=100, step=20):
+    #     wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=i)
+    #     fluxL = self.Util.resampleFlux_i(flux, step=step)
+    #     w = self.dWw[W][1]
+    #     dSN_preds_i = {}
+    #     for snr, err in dSnr.items():
+    #         fluxNL = self.add_noise_N(fluxL, err, N=N, step=step)
+    #         lognorm_fluxL = self.Util.lognorm_flux(fluxNL)
+    #         dSN_preds_i[snr] = self.trans_predict(lognorm_fluxL, W=w, R0=R0)
+    #     return dSN_preds_i, para
+
+    # def predict_snr_flux_R0(self, R0, W="RedM", nSN=10):
+    #     paras = []
+    #     dSN_preds = {}
+    #     for i in nSN:
+    #         dSN_preds[i], para = self.predict_snr_flux_R0_i(i, R0=R0, W=W)
+    #         paras.append(para)
+    #         paras=np.vstack(paras)
+    #     return dSN_preds, paras
+
+
+    # def prepare_snr_flux_i(self, i, R0=None, W="RedM", N=100, step=20):
+    #     wave, flux, para, dSnr = self.load_snr_flux(W, R0, idx=i)
+    #     fluxL = self.Util.resampleFlux_i(flux, step=step)
+    #     dSN_flux_i = {}
+    #     for snr, err in dSnr.items():
+    #         fluxNL = self.add_noise_N(fluxL, err, N=N, step=step)
+    #         lognorm_fluxL = self.Util.lognorm_flux(fluxNL)
+    #         dSN_flux_i[snr] = lognorm_fluxL
+    #     return dSN_flux_i, para
+    

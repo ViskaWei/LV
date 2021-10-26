@@ -37,7 +37,7 @@ class Box():
         elif srun:
             slurm = "srun" + slurm
         
-        self.slurm = slurm + "-t 48:0:0"
+        self.slurm = slurm + " -t 72:0:0"
 
     def init_para(self):
         NORM_PATH = "/scratch/ceph/szalay/swei20/AE/norm_flux.h5"

@@ -78,7 +78,9 @@ class BaseDNN():
         self.N_snr=10
         self.N_fluxNL=100
         self.dSR={}
-
+        self.dSN = {}
+        self.dSN_idxs={}
+        self.dSN_paras={}
 
         self.wave = None
         self.resolution = 1000
@@ -121,8 +123,6 @@ class BaseDNN():
         self.dSR[R0] = dSN_preds
 
 
-
-
     def load_dSN_W_R0(self, W, R0, SNR_PATH=None):
         RR = self.dR[R0]
         if SNR_PATH is None: SNR_PATH=f"{self.dataDir}/{RR}/snr/{W}_{self.N_snr}.h5"    
@@ -134,9 +134,6 @@ class BaseDNN():
 
     def load_dSN_W(self, W, Rs=None, SNR_PATH=None):
         Rs = self.Rnms if Rs is None else [Rs]
-        self.dSN = {}
-        self.dSN_idxs={}
-        self.dSN_paras={}
         for R0 in Rs:
             idxs=np.arange(self.N_snr)
             # idxs = np.random.randint(0, self.N_test, self.N_snr)
@@ -157,7 +154,7 @@ class BaseDNN():
         for snr in self.snrList:
             error = self.dSN[R0][snr][idx]
             fluxLs = self.add_noise_N(fluxL, error, self.N_fluxNL)
-            lognorm_fluxLs = self.Util.lognorm_flux(fluxLs, step=self.dstep)
+            lognorm_fluxLs = self.Util.lognorm_flux(fluxLs)
             dSN_fluxs_i[snr] = lognorm_fluxLs
         return dSN_fluxs_i
 
@@ -225,7 +222,7 @@ class BaseDNN():
         nPixel = PC.shape[1]        
         return dPC, nPixel
 
-    def dataloader_W_R(self, W="RML", R=None, N=None, mag=None, grid=0):
+    def dataloader_W_R(self, W="RML", R=None, N=None, mag=None, grid=0, printPath=0):
         if mag is None: mag = self.mag
         RR = self.dR[R]
         Ws = self.dWs[W]
@@ -234,6 +231,7 @@ class BaseDNN():
         elif not grid:
             nn= N // 1000
             DATA_PATH = f"{self.dataDir}/{RR}/sample/{Ws[3]}_R{Ws[2]}_{nn}k_m{mag}.h5"
+        if printPath: print(DATA_PATH)
         wave, flux, pval, error, snr = self.dataloader(DATA_PATH)
         if grid and (N is not None): 
             idx = np.random.choice(len(flux), N)
@@ -254,7 +252,7 @@ class BaseDNN():
         _, fluxLs, error, pval, snr = self.dataloader_W_R(W=W, R=R, N=N, grid=grid, mag=mag)
         if isNoisy: 
             fluxLs = self.add_noise(fluxLs, error)
-        lognorm_fluxLs = self.Util.lognorm_flux(fluxLs, step=20)
+        lognorm_fluxLs = self.Util.lognorm_flux(fluxLs)
         return fluxLs, lognorm_fluxLs, pval, snr
 
     def prepare_testset_W(self, W, Rs, N_test=None, grid=0, isNoisy=1):
@@ -580,26 +578,32 @@ class BaseDNN():
     #         self.plot_box_R0_R1(R0, R1, data=data, Ps=Ps, SN=SN, n_box=n_box, axs=axs, ylbl = (i==0))
     #     # plt.tight_layout()
 
-    def plot_pred(self, R0, snrList=[], c="k",s=1, fsize=4):
+    def plot_pred(self, R0, snrList=[], c="k",s=1, fsize=4, c1="r"):
         n_snr = len(snrList) + 1
         f, axss = plt.subplots(n_snr, self.npdx,figsize=(self.npdx* fsize, n_snr*fsize), facecolor="w")
         SN = self.s_tests[R0]
         for ii, axs in enumerate(axss.T):
+            p = self.Pnms[self.pdx[ii]]
             x = self.p_tests[R0][:,ii]
             y = self.p_preds[R0][R0][:,ii]
             if n_snr==1: axs = [axs]
             axs[0].scatter(x,y,c=c,s=s, label=f"<SNR>={SN.mean():.0f}") #, label=f"{self.Pnms[pdx]}"
-            axs[0].annotate(f"{self.dR[R0]}-NN\n{self.Pnms[self.pdx[ii]]}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=fsize*3)
+            RMS = np.sqrt(np.mean((x-y)**2)).round(2)
+            axs[0].annotate(f"{self.dR[R0]}-NN\n{p}\n$\Delta${p}={RMS}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=fsize*3, c=c1)
             for jj, snr in enumerate(snrList):
-                idx = np.where((SN > snr-5) & (SN < snr+5))[0]   
-                axs[jj+1].scatter(x[idx], y[idx], s=s, c=c, label=f"SNR={snr}")
+                lb, ub = snr -5, snr + 5
+                idx = np.where((SN > lb) & (SN < ub))[0]   
+                xx, yy = x[idx], y[idx]
+                RMS = np.sqrt(np.mean((xx-yy)**2)).round(2)
+                axs[jj+1].scatter(xx, yy, s=s, c=c, label=f"{lb} < SNR < {ub}")
+                axs[jj+1].annotate(f"{self.dR[R0]}-NN\n{p}\n$\Delta${p} ={RMS:.2f}", xy=(0.6,0.2), xycoords="axes fraction",fontsize=fsize*3,c=c1)
                 # axs[jj+1].legend()
 
             # if R is not None:
                 # axs[0][ii].scatter(self.YOs[R][:,ii], self.YPs[R][:,ii], c="b",s=1, label=f"{R}")
 
             for ax in axs:
-                ax.plot([self.pMins[R0][ii], self.pMaxs[R0][ii]], [self.pMins[R0][ii], self.pMaxs[R0][ii]], c="r", lw=2)
+                ax.plot([self.pMins[R0][ii], self.pMaxs[R0][ii]], [self.pMins[R0][ii], self.pMaxs[R0][ii]], c=c1, lw=2)
                 # axs[1][ii].plot(np.array([[self.pMin[ii],self.pMin[ii]], [self.pMax[ii]],self.pMax[ii]]), c="r")
                 ax.set_xlim(self.pMins[R0][ii], self.pMaxs[R0][ii])
                 ax.set_ylim(self.pMins[R0][ii], self.pMaxs[R0][ii])
@@ -694,6 +698,16 @@ class BaseDNN():
         ylbl = [RRs[0], *RRs[::-1]]
         ax.set_yticklabels(ylbl, rotation=90,  verticalalignment='center', horizontalalignment='right')
         ax.set_title(f"Error > {100*cut}%")
+
+    def plot_snr_hist(self, snr, mag=19, exp_count=20, exp_time=900, ax=None):
+        if ax is None:
+            f, ax = plt.subplots(figsize=(5,4), facecolor="w")
+        _=ax.hist(snr, bins=100, density=1, label=f"mag={mag}", color="gray")
+        ax.set_xlabel("SNR")
+        ax.set_ylabel("density of spec")
+        ax.set_title(f"exp_count = {exp_count}, exp_time = {exp_time}s")
+        ax.legend()
+
 
 #DNN--------------------------------------------------
 

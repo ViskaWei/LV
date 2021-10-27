@@ -24,7 +24,7 @@ class Box():
         self.c = Constants()
         self.Util = Util()
         self.boszR=50000
-        self.pixelR=5000
+        self.pixelR={"RedM": 5000, "Blue":2300, "NIR": 4300}
 
     def get_slurm(self, volta=0, srun=0, sbatch=0, mem=256):
         slurm=""
@@ -104,12 +104,13 @@ class Box():
             self.get_pca_cmd(R, W=W, pixelR=pixelR, mag_lim=mag_lim)
 
 
-    def get_sample_cmd(self, R, W="RedM", N=10000, pixelR=5000, dmag=1):
+    def get_sample_cmd(self, R, W="RedM", N=10000, pixelR=None, dmag=1, Ps_arm=None):
+        if pixelR is None: pixelR=self.pixelR[W]
         print(R, sep="/n/n")
         pp = self.c.dRs[R]
         w  = self.c.dWw[W][0]
         nn = N // 1000 
-        if N <1000: chunk=10
+        chunk=10 if N <1000 else 1000
 
         base = f"./scripts/prepare.sh {self.slurm} model bosz-rbf pfs --config ./configs/infer/pfs/bosz/nowave/prepare/train.json"
         arm  = f"  ./configs/infer/pfs/bosz/nowave/inst_pfs_{w}.json"
@@ -120,15 +121,18 @@ class Box():
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
         mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {self.mag_lim-dmag} {self.mag_lim+dmag}"
         norm = f" --norm none"
-        
         cmd = base + arm + size + inD + outD + para + mag + norm
+        if Ps_arm is not None:
+            sample_name_params = f"R{pixelR}_{Ps_arm}_{nn}k_m{self.mag_lim}"
+            params = f" --match-params /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name_params}/"
+            cmd += params
         print(cmd)
-        self.pixelR=pixelR
 
-    def step4_sample(self, R=None, N=1000):
+
+    def step4_sample(self, W=None, R=None, N=1000, Ps_arm=None):
         RList= self.c.Rnms if R is None else [R]
         for R in RList:
-            self.get_sample_cmd(R, N=N)
+            self.get_sample_cmd(R, W=W, N=N, pixelR=5000, Ps_arm=Ps_arm)
 
     def load_laszlo(self, R, W="RedM", N=None, DATA_PATH=None, grid=False):
         RR = self.c.dRR[R]
@@ -205,9 +209,9 @@ class Box():
         for R in RList:
             self.convert(R, W=W, N=N, step=step, grid=grid)
 
-    def step6_PCA(self, W="RML", N=1000, top=100, name=""):
+    def step6_PCA(self, W="RML", N=1000, top=200):
         p = BasePCA()
-        p.run(W, N=N, top=top, transform=0, save=1, name=name)
+        p.run(W, N=N, top=top, transform=0, save=1)
         
 
     # def convert_v0(self, R, W="RedM", N=1000, boszR=5000, step=20, grid=0):

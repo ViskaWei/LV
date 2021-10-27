@@ -30,13 +30,20 @@ class Util():
 
 
     @staticmethod
-    def lognorm_flux(fluxs, step=20):
+    def lognorm_flux(fluxs):
+        fluxs = np.where(fluxs>0, fluxs, 1e-20)
         norm_flux = np.divide(fluxs, fluxs.mean(1)[:,None])
+        # norm_flux = np.where(norm_flux <= 0, 0, norm_flux)
         LNflux = np.log(norm_flux)
         return LNflux
 
+    # @staticmethod
+    # def safe_log(x):
+    #         a = np.exp(args[0]) if args is not None else 1e-10
+    #         return np.log(np.where(x < a, a, x))
+
     @staticmethod
-    def lognorm_flux_i(flux, step=20):
+    def lognorm_flux_i(flux):
         return np.log(np.divide(flux, flux.mean()))
 # ----------------------------------------------------------
     @staticmethod

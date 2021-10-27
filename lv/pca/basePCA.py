@@ -33,10 +33,12 @@ class BasePCA(object):
         self.Util = Util()
         self.grid=grid
 
-    def run(self, W, Rs=None, N=1000, top=100, transform=0,name="", save=0):
+    def run(self, W, Rs=None, N=1000, top=100, transform=0, save=0):
         self.prepare_data_W(W, Rs, N=N)
         self.prepare_svd(W, Rs, top=top, transform=transform)
-        if save: self.save_W(W, name=name)
+        if save: 
+            name = "" if N is None else f"_{N // 1000}k"
+            self.save_W(W, name=name)
 
 
     def run_R(self, W, R, N=None, top=100, transform=0, name="", save=1):
@@ -70,7 +72,7 @@ class BasePCA(object):
         return wave, flux, pval
 
     def prepro_fn(self, wave, flux):
-        return wave, self.Util.lognorm_flux(flux, step=20)
+        return wave, self.Util.lognorm_flux(flux)
 
     def prepare_data_W_R(self, W, R, N=10000):
         wave, flux, pval = self.dataloader_W_R(W, R, N=N)

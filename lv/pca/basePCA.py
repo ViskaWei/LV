@@ -3,9 +3,10 @@ import cupy as cp
 import pandas as pd
 import h5py
 from tqdm import tqdm
+from sklearn.ensemble import RandomForestRegressor,RandomForestClassifier
 
 from matplotlib import pyplot as plt
-from lv.constants import Constants as c
+from lv.constants import Constants
 from lv.util import Util
 
 
@@ -15,11 +16,12 @@ class BasePCA(object):
         self.prepro=prepro
         self.CUDA=CUDA
         # self.top= None
-        self.dWs = c.dWs
+        self.c = Constants()
+        self.dWs = self.c.dWs
         # self.dRs = c.dRs
-        self.dR = c.dR
-        self.Rnms = c.Rnms
-        self.Cnms = c.Cnms
+        self.dR = self.c.dR
+        self.Rnms = self.c.Rnms
+        self.Cnms = self.c.Cnms
         # self.RRnms = c.RRnms
         self.nFlux = {}
         self.nPara = {}
@@ -55,7 +57,7 @@ class BasePCA(object):
         for R in tqdm(Rs):
             self.prepare_data_W_R(W, R, N=N)
 
-    def dataloader_W_R(self, W="RML", R=None, N=None, pdx=None, mag=19):
+    def dataloader_W_R(self, W="RML", R=None, N=None, mag=19):
         RR = self.dR[R]
         Ws = self.dWs[W]
         if N is not None:
@@ -125,11 +127,14 @@ class BasePCA(object):
             for R, nV in self.nVs.items():
                 f.create_dataset(f"PC_{R}", data=nV, shape=nV.shape)
 
-    def plot_pcFlux_R(self, R, idx0=0, idx1=1, pdx=1):
+    def plot_pcFlux_R(self, R, data=None, idx0=0, idx1=1, pdx=1):
+        if data is None:
+            data = self.npcFlux[R]
         plt.figure(figsize=(5,4), facecolor='w')
-        plt.scatter(self.npcFlux[R][:,idx0], self.npcFlux[R][:,idx1],c=self.nPara[R][:,pdx], s=1, cmap = self.Cnms[pdx])
+        plt.scatter(data[:,idx0], data[:,idx1],c=self.nPara[R][:,pdx], s=1, cmap = self.Cnms[pdx], label=f"{self.c.Pnms[pdx]}")
         plt.xlabel(f"PC{idx0}")
         plt.ylabel(f"PC{idx1}")
+        plt.legend()
         plt.colorbar()
 
     def plot_V_R(self, R,top=5, step=0.3, ax=None):
@@ -147,7 +152,30 @@ class BasePCA(object):
         ax.set_xticks(np.arange(int(wave[0]), np.ceil(wave[-1]), 200))
         ax.xaxis.grid(xgrid)
 
+    def get_rf(self, data, lbl):
+        rf = RandomForestRegressor(max_depth=50, random_state=0, n_estimators=100, max_features=30)
+        rf.fit(data, lbl)
+        return rf.feature_importances_
+
+    def barplot_rf(self, fi, sdx=None, top=15, log=0, color="k", ax=None):
+        if sdx is None: sdx = fi.argsort()[::-1][:top]
+        if ax is None: ax =plt.subplots(1, figsize=(16,1), facecolor="w")[1]
+        ax.bar([f"{sdx[i]}" for i in range(len(sdx))],  fi[sdx], log=log, color=color)
+
     # def plot_nV
+
+
+    def pcloader_W(self, W=None, Rs=None, top=100, name=""):
+        if Rs is None: Rs = self.Rnms
+        Ws = self.dWs[W]
+        PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}{name}.h5"
+        dPC = {}
+        with h5py.File(PC_PATH, 'r') as f:
+            for R in Rs:
+                PC = f[f'PC_{R}'][()]
+                dPC[R] = PC[:top]
+        nPixel = PC.shape[1]        
+        return dPC, nPixel
 
 
 

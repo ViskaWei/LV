@@ -621,11 +621,20 @@ class BaseDNN():
         # axs[1][0].set_ylabel(f"$\Delta$pred")
 
 #overlap --------------------------------------------------
-    def get_overlap_R0_R1(self, R0, R1):
+    # def get_overlap_R0_R1(self, R0, R1):
+    #     p_pred = self.p_preds[R0][R1]
+    #     mask = True
+    #     for pdx in range(self.npdx):
+    #         mask = mask & (p_pred[:,pdx] >= self.pMins[R0][pdx]) & (p_pred[:,pdx] <= self.pMaxs[R0][pdx])
+    #     overlap = mask.sum() / self.N_test
+    #     return overlap
+
+    def get_overlap_R0_R1(self, R0, R1, pdx=None):
+        if pdx is None: pdx = self.pdx
         p_pred = self.p_preds[R0][R1]
         mask = True
-        for pdx in range(self.npdx):
-            mask = mask & (p_pred[:,pdx] >= self.pMins[R0][pdx]) & (p_pred[:,pdx] <= self.pMaxs[R0][pdx])
+        for pdx_i in range(len(pdx)):
+            mask = mask & (p_pred[:,pdx_i] >= self.pMins[R0][pdx_i]) & (p_pred[:,pdx_i] <= self.pMaxs[R0][pdx_i])
         overlap = mask.sum() / self.N_test
         return overlap
 

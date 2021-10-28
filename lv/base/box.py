@@ -25,6 +25,7 @@ class Box():
         self.Util = Util()
         self.boszR=50000
         self.pixelR={"RedM": 5000, "Blue":2300, "NIR": 4300}
+        self.mag=19
 
     def get_slurm(self, volta=0, srun=0, sbatch=0, mem=256):
         slurm=""
@@ -53,6 +54,22 @@ class Box():
         uG = np.unique(logG)
         uC = np.unique(CM)
         uA = np.unique(ALPHA)
+        return MH, Teff, logG, CM, ALPHA, uM, uT, uG, uC, uA
+        
+#step1 Box ---------------------------------------------------------------------------------
+
+    def setBlocks(self):
+        Blocks = collections.namedtuple('Blocks',['let','name','lower','upper','color'])
+        name  = ['M31 Giants','MW Warm MS','MW Cool MS','Blue HB','Red HB', 'Dwarf G Giants']
+        lower, upper = [], []
+        for R, bnds in self.c.dRs.items():
+            bnds = np.array(bnds)[[1,2,0]].T
+            bnds[:,0] /= 1000
+            lower.append(list(bnds[0]))
+            upper.append(list(bnds[1]))    
+        return Blocks(self.c.Rnms, name, lower, upper, list(self.c.dRC.values()))
+
+
 
 #step2 RBF -----
 
@@ -76,7 +93,7 @@ class Box():
 
 # step3 GRID -------------------------------------------------
 
-    def get_pca_cmd(self, R, W="RedM", pixelR=5000, mag_lim=19):
+    def get_pca_cmd(self, R, W="RedM", pixelR=5000, mag=19):
         print(R, sep="/n/n")
         pp = self.c.dRs[R]
         w  = self.c.dWw[W][0]
@@ -85,23 +102,22 @@ class Box():
         size = f" --chunk-size 1 "
         inD  = f" --in /scratch/ceph/dobos/data/pfsspec/import/stellar/grid/bosz_50000"
         
-        if self.grid_name is None: self.grid_name = f"R{pixelR}_{W}_m{mag_lim}"
+        if self.grid_name is None: self.grid_name = f"R{pixelR}_{W}_m{mag}"
         outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{self.grid_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
         norm = f" --norm none"
-        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {mag_lim} "
+        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {mag} "
         grid = f" --sample-mode grid"
 
         cmd = base + arm + size + inD + outD + para + norm + mag + grid
         print(cmd)
 
-    def step3_grid(self, R=None, W="RedM", pixelR=5000, mag_lim=19):
-        self.mag_lim=mag_lim
-        self.grid_name = f"R{pixelR}_{W}_m{self.mag_lim}"
-        self.pixelR=pixelR
+    def step3_grid(self, R=None, W="RedM", pixelR=None, mag=19):
+        self.mag=mag
+        self.grid_name = f"R{pixelR}_{W}_m{self.mag}"
         RList= self.c.Rnms if R is None else [R]
         for R in RList:
-            self.get_pca_cmd(R, W=W, pixelR=pixelR, mag_lim=mag_lim)
+            self.get_pca_cmd(R, W=W, pixelR=pixelR, mag=mag)
 
 
     def get_sample_cmd(self, R, W="RedM", N=10000, pixelR=None, dmag=1, Ps_arm=None):
@@ -116,14 +132,14 @@ class Box():
         arm  = f"  ./configs/infer/pfs/bosz/nowave/inst_pfs_{w}.json"
         size = f" --chunk-size {chunk} --sample-count {N}"
         inD  = f" --in /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_{self.boszR}_{self.c.dRR[R]}/rbf"
-        sample_name = f"R{pixelR}_{W}_{nn}k_m{self.mag_lim}"
+        sample_name = f"R{pixelR}_{W}_{nn}k_m{self.mag}"
         outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
-        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {self.mag_lim-dmag} {self.mag_lim+dmag}"
+        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {self.mag-dmag} {self.mag+dmag}"
         norm = f" --norm none"
         cmd = base + arm + size + inD + outD + para + mag + norm
         if Ps_arm is not None:
-            sample_name_params = f"R{pixelR}_{Ps_arm}_{nn}k_m{self.mag_lim}"
+            sample_name_params = f"R{pixelR}_{Ps_arm}_{nn}k_m{self.mag}"
             params = f" --match-params /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name_params}/"
             cmd += params
         print(cmd)
@@ -139,9 +155,9 @@ class Box():
         if DATA_PATH is None: 
             DATA_DIR =f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/laszlo/"
             if grid: 
-                name = f"R{self.pixelR}_{W}_m{self.mag_lim}/"
+                name = f"R{self.pixelR[W]}_{W}_m{self.mag}/"
             else:
-                name = f"R{self.pixelR}_{W}_{N//1000}k_m{self.mag_lim}/"
+                name = f"R{self.pixelR[W]}_{W}_{N//1000}k_m{self.mag}/"
             DATA_PATH = DATA_DIR + name + "dataset.h5"
         print(DATA_PATH)
         with h5py.File(DATA_PATH, "r") as f:
@@ -174,12 +190,12 @@ class Box():
         ws = self.c.dWs[w]
         if grid: 
             SAVE_DIR += f"grid/"
-            name = f"{W}_R{self.pixelR}_m{self.mag_lim}.h5"
-            nameL = f"{ws[3]}_R{ws[2]}_m{self.mag_lim}.h5"
+            name = f"{W}_R{self.pixelR[W]}_m{self.mag}.h5"
+            nameL = f"{ws[3]}_R{ws[2]}_m{self.mag}.h5"
         else:
             SAVE_DIR += f"sample/"
-            name = f"{W}_R{self.pixelR}_{N//1000}k_m{self.mag_lim}.h5"
-            nameL = f"{ws[3]}_R{ws[2]}_{N//1000}k_m{self.mag_lim}.h5"
+            name = f"{W}_R{self.pixelR[W]}_{N//1000}k_m{self.mag}.h5"
+            nameL = f"{ws[3]}_R{ws[2]}_{N//1000}k_m{self.mag}.h5"
         if not os.path.isdir(SAVE_DIR):
             os.mkdir(SAVE_DIR)
 

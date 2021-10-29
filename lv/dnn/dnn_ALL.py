@@ -26,19 +26,25 @@ class DNN_ALL(BaseDNN):
         # self.Wnms = ["BL","RML","NL"]
         self.n_ftr = top * len(self.arms)
         self.pc_name = pc_name
+        self.dPCs = {}
 
 
-    def prepare(self, Rs=None, N_train=None, grid=0, isNoisy=1):
-        self.load_PCs(Rs=Rs, top=self.top)
-        self.setup_scalers(self.pdx)
-        for W in self.arms:
-            self.prepare_trainset_W(W, Rs, N_train, grid, isNoisy)
-            self.prepare_testset_W(W, Rs, self.N_test, grid, isNoisy)
+    def prepare(self, Ws=None, Rs=None, N_train=None, grid=0, isNoisy=1):
+        if Ws is None: Ws = self.arms
+        self.load_PCs(Ws, Rs)
+        self.setup_scalers()
+        self.prepare_trainset(Ws, Rs, N_train, grid, isNoisy)
+        self.prepare_testset(Ws, Rs, self.N_test, grid, isNoisy)
 
 
-    def load_PCs(self, Rs=None, top=None):
-        for W in self.arms:
+    def load_PCs(self, Ws=None, Rs=None, top=None):
+        for W in Ws:
             self.dPC[W], self.dPxl[W] = self.pcloader_W(W=W, Rs=Rs, top=top, name=self.pc_name)
+        for R in self.dPC[W].keys():
+            PCs = []
+            for W in self.arms:
+                PCs.append(self.dPC[W][R])
+            self.dPCs[R] = np.vstack(PCs)
 
     
     def run_R0(self, R0, top = None, lr=0.01, dp=0.01, ep=1, verbose=0):

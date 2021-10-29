@@ -84,8 +84,11 @@ class BaseDNN():
 
         self.wave = None
         self.resolution = 1000
+        self.dWRt = {"RML": 1, "BL":1}
+
 
         self.snrList=[10,20,30,50,100]
+        self.debug=0
         
 
 
@@ -196,7 +199,6 @@ class BaseDNN():
             ffs = ffs + self.flow_fn_i(preds, para, snr=snr, legend=legend)
             legend=0
         self.plot_box_R0_R1(R0,R0, ffs, n_box=n_box)
-        # self.dFns[R0][snr] = 
 
     def eval_snr_i(self, i, R0, n_box=0.2):
         dSN_preds_i = self.dSR[R0][i]
@@ -210,8 +212,9 @@ class BaseDNN():
 
 
 #dataloader-----------------------------------------------
-    def pcloader_W(self, W=None, Rs=None, top=100, name=""):
+    def pcloader_W(self, W=None, Rs=None, top=None, name=""):
         if Rs is None: Rs = self.Rnms
+        if top is None: top = self.top
         Ws = self.dWs[W]
         PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}{name}.h5"
         dPC = {}
@@ -223,21 +226,31 @@ class BaseDNN():
         return dPC, nPixel
 
     def dataloader_W_R(self, W="RML", R=None, N=None, mag=None, grid=0, printPath=0):
-        if mag is None: mag = self.mag
-        RR = self.dR[R]
-        Ws = self.dWs[W]
-        if grid:
-            DATA_PATH = f"{self.dataDir}/{RR}/grid/{Ws[3]}_R{Ws[2]}_m{mag}.h5"
-        elif not grid:
-            nn= N // 1000
-            DATA_PATH = f"{self.dataDir}/{RR}/sample/{Ws[3]}_R{Ws[2]}_{nn}k_m{mag}.h5"
-        if printPath: print(DATA_PATH)
+        DATA_PATH = self.get_datapath_from_W_R(W, R, N)
+        if self.debug: print(DATA_PATH)
         wave, flux, pval, error, snr = self.dataloader(DATA_PATH)
         if grid and (N is not None): 
             idx = np.random.choice(len(flux), N)
             flux, pval, error, snr = flux[idx], pval[idx], error[idx], snr[idx]
         return wave, flux, error, pval, snr
 
+    def get_datapath_from_W_R(self, W, R, N, mag=None, grid=0):
+        if mag is None: mag = self.mag
+        Ws = self.dWs[W]
+        if grid:
+            DATA_PATH = f"{self.dataDir}/{self.dR[R]}/grid/{Ws[3]}_R{Ws[2]}_m{mag}.h5"
+        elif not grid:
+            nn= N // 1000
+            DATA_PATH = f"{self.dataDir}/{self.dR[R]}/sample/{Ws[3]}_R{Ws[2]}_{nn}k_m{mag}.h5"
+        return DATA_PATH
+
+    def check_para(self, PATH1, PATH2):
+        with h5py.File(PATH1, 'r') as f:
+            para1 = f['pval'][()]
+        with h5py.File(PATH2, 'r') as f:
+            para2 = f['pval'][()]
+        return abs(para1  - para2).sum()
+        
     def dataloader(self, DATA_PATH):
         with h5py.File(DATA_PATH, 'r') as f:
             wave = f['wave'][()]
@@ -247,34 +260,63 @@ class BaseDNN():
             snr =   f['snr'][()]
         if self.pdx is not None: pval = pval[:,self.pdx]
         return wave, flux, pval, error, snr
+    
+    def dataloader_lazy(self, DATA_PATH):
+        with h5py.File(DATA_PATH, 'r') as f:
+            flux = f['flux'][()]
+            error = f['error'][()]
+        return flux, error
+    
 
-    def process_data_W_R(self, W, R, N=None, grid=0, mag=None, isNoisy=1):
-        _, fluxLs, error, pval, snr = self.dataloader_W_R(W=W, R=R, N=N, grid=grid, mag=mag)
-        if isNoisy: 
-            fluxLs = self.add_noise(fluxLs, error)
-        lognorm_fluxLs = self.Util.lognorm_flux(fluxLs)
-        return fluxLs, lognorm_fluxLs, pval, snr
+    def process_data_W_R(self, W, R, N=None, grid=0, mag=None, isNoisy=1, isLazy=0):
+        if isLazy:
+            DATA_PATH = self.get_datapath_from_W_R(W, R, N, mag=mag, grid=grid)
+            print("L", DATA_PATH)
+            fluxLs, error = self.dataloader_lazy(DATA_PATH)
+            if isNoisy: fluxLs = self.add_noise(fluxLs, error, rate=self.dWRt[W])
+            lognorm_fluxLs = self.Util.lognorm_flux(fluxLs)
+            return lognorm_fluxLs
+        else:
+            _, fluxLs, error, pval, snr = self.dataloader_W_R(W=W, R=R, N=N, grid=grid, mag=mag)
+            if isNoisy: fluxLs = self.add_noise(fluxLs, error, rate=self.dWRt[W])
+            lognorm_fluxLs = self.Util.lognorm_flux(fluxLs)
+            return fluxLs, lognorm_fluxLs, pval, snr
 
-    def prepare_testset_W(self, W, Rs, N_test=None, grid=0, isNoisy=1):
+    def process_data_R(self, R, Ws=None, N=None, grid=0, isNoisy=1):
+        if Ws is None: Ws = self.arms
+        fluxLs, lognorm_fluxLs_W, pval, snr = self.process_data_W_R(Ws[0], R, N=N, grid=grid, isNoisy=isNoisy)
+        if len(Ws) > 1:
+            lognorm_fluxLs = [lognorm_fluxLs_W]
+            for W in Ws[1:]:
+                lognorm_fluxLs_W = self.process_data_W_R(W, R, N=N, grid=grid, isNoisy=isNoisy, isLazy=1)
+                lognorm_fluxLs.append(lognorm_fluxLs_W)
+            x = np.hstack(lognorm_fluxLs)
+        else:
+            x = lognorm_fluxLs_W
+        return x, pval, snr
+
+
+    
+    
+    def prepare_testset(self, Ws=None, Rs=None, N_test=None, grid=0, isNoisy=1):
         if Rs is None: Rs = self.Rnms
         for R0 in Rs:
-            self.o_tests[R0], self.f_tests[R0],self.p_tests[R0], self.s_tests[R0] =self.process_data_W_R(W, R0, N=N_test, grid=grid, isNoisy=isNoisy)
+            self.f_tests[R0], self.p_tests[R0], self.s_tests[R0] = self.process_data_R(R0, Ws=Ws, N=N_test, grid=grid, isNoisy=isNoisy)
         for R0 in Rs:
-            x = {}
+            pcFlux = {}
             for R1 in Rs:
-                x[R1] = self.transform_W_R(self.f_tests[R1], W, R0) # project to R0 PC
-            self.x_tests[R0] = x
+                pcFlux[R1] = self.transform_R(self.f_tests[R1], R0) # project to R0 PC
+            self.x_tests[R0] = pcFlux
 
 
-    def prepare_trainset_W(self,W, Rs=None, N_train=None, grid=0, isNoisy=1):
+    def prepare_trainset(self, Ws=None, Rs=None, N_train=None, grid=0, isNoisy=1):
         if Rs is None: Rs = self.Rnms
         for R0 in Rs:
-            _, self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_data_W_R(W, R0, N=N_train, grid=grid, isNoisy=isNoisy)
-            self.x_trains[R0] = self.transform_W_R(self.f_trains[R0], W, R0) # project to R0 PC
+            self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_data_R(R0, Ws=Ws, N=N_train, grid=grid, isNoisy=isNoisy)
             self.y_trains[R0] = self.scale(self.p_trains[R0], R0)
-
-
-
+            self.x_trains[R0] = self.transform_R(self.f_trains[R0],R0) # project to R0 PC
+                
+                
 
 # noise ---------------------------------------------------------------------------------
     def add_noise(self, fluxLs, errs,  rate=1.0, step=20):
@@ -298,8 +340,8 @@ class BaseDNN():
     
 
 # scaler ---------------------------------------------------------------------------------
-    def setup_scalers(self, pdx):
-        self.pdx = pdx
+    def setup_scalers(self, pdx=None):
+        if pdx is None: pdx = self.pdx
         for R, Rs in self.dRs.items():
             self.pRanges[R], self.pMins[R], self.pMaxs[R] = self.get_scaler(Rs)
 
@@ -318,6 +360,16 @@ class BaseDNN():
 
     def transform_W_R(self, x, W, R):
         return x.dot(self.dPC[W][R].T)
+
+    def transform_R(self, x, R):
+        start=0
+        y= []
+        for ii, (W, pixel) in enumerate(self.dPxl.items()):
+            end = start + pixel
+            y.append(self.transform_W_R(x[:, start: end], W, R))
+            start = end
+        return np.hstack(y)
+
 
     def trans_predict_norm(self, x, W, R, dnn=None):
         data = self.transform_W_R(x, W, R)
@@ -733,11 +785,16 @@ class BaseDNN():
         y_preds = dnn.model.predict(data)
         return self.rescale(y_preds, R)
 
-    def trans_predict(self, data, W, R0, dnn=None):
+    def trans_predict_W(self, data, W, R0, dnn=None):
         pc_data = self.transform_W_R(data, W, R0)
         p_pred = self.predict(pc_data, R0, dnn=None)
         return p_pred
-
+    
+    def trans_predict(self, data, R0, dnn=None):
+        pc_data = self.transform_W_R(data, R0)
+        p_pred = self.predict(pc_data, R0, dnn=None)
+        return p_pred
+    
 
 
 

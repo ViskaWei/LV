@@ -139,7 +139,7 @@ class Box():
         norm = f" --norm none"
         cmd = base + arm + size + inD + outD + para + mag + norm
         if Ps_arm is not None:
-            sample_name_params = f"R{pixelR}_{Ps_arm}_{nn}k_m{self.mag}"
+            sample_name_params = f"R{self.pixelR[Ps_arm]}_{Ps_arm}_{nn}k_m{self.mag}"
             params = f" --match-params /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name_params}/"
             cmd += params
         print(cmd)
@@ -148,7 +148,7 @@ class Box():
     def step4_sample(self, W=None, R=None, N=1000, Ps_arm=None):
         RList= self.c.Rnms if R is None else [R]
         for R in RList:
-            self.get_sample_cmd(R, W=W, N=N, pixelR=5000, Ps_arm=Ps_arm)
+            self.get_sample_cmd(R, W=W, N=N, pixelR=None, Ps_arm=Ps_arm)
 
     def load_laszlo(self, R, W="RedM", N=None, DATA_PATH=None, grid=False):
         RR = self.c.dRR[R]

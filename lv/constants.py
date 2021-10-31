@@ -15,8 +15,8 @@ class Constants():
 
     dRR={"M":"M31G","W":"MWW","C":"MWC","B":"BHB","R":"RHB","G":"DGG"}
     dRC={"M": "orange" ,"W":"lightgreen","C":"brown","B":"dodgerblue","R":"red","G":"fuchsia"}
-    dWw={"RedM": ["mr", "RML", "RedM"], "Blue": ["b", "BL","Blue"], "NIR": ["nir", "NL", "NIR"]}
-    dwW={"RML": ["mr", "RedM", "RML"], "BL": ["b", "Blue","BL"], "NL": ["nir", "NIR", "NL"]}
+    dWw={"RedM": ["mr", "RML", "RedM"], "Blue": ["b", "BL","Blue"], "NIR": ["n", "NL", "NIR"]}
+    dwW={"RML": ["mr", "RedM", "RML"], "BL": ["b", "Blue","BL"], "NL": ["n", "NIR", "NL"]}
 
     dC = {"MH": "plasma", "Teff": "gist_rainbow", "logg": "turbo",  "CH": "gist_rainbow", "AH":"winter"}
     Cnms = list(dC.values())

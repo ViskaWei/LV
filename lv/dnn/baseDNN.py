@@ -225,7 +225,7 @@ class BaseDNN():
         nPixel = PC.shape[1]        
         return dPC, nPixel
 
-    def dataloader_W_R(self, W="RML", R=None, N=None, mag=None, grid=0, printPath=0):
+    def dataloader_W_R(self, W="RML", R=None, N=None, mag=None, grid=0):
         DATA_PATH = self.get_datapath_from_W_R(W, R, N)
         if self.debug: print(DATA_PATH)
         wave, flux, pval, error, snr = self.dataloader(DATA_PATH)
@@ -271,7 +271,7 @@ class BaseDNN():
     def process_data_W_R(self, W, R, N=None, grid=0, mag=None, isNoisy=1, isLazy=0):
         if isLazy:
             DATA_PATH = self.get_datapath_from_W_R(W, R, N, mag=mag, grid=grid)
-            print("L", DATA_PATH)
+            if self.debug: print("L", DATA_PATH)
             fluxLs, error = self.dataloader_lazy(DATA_PATH)
             if isNoisy: fluxLs = self.add_noise(fluxLs, error, rate=self.dWRt[W])
             lognorm_fluxLs = self.Util.lognorm_flux(fluxLs)

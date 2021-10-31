@@ -25,6 +25,7 @@ class Box():
         self.Util = Util()
         self.boszR=50000
         self.pixelR={"RedM": 5000, "Blue":2300, "NIR": 4300}
+        self.filter={'RedM':'i', 'Blue':'g', 'NIR':'y'}
         self.mag=19
 
     def get_slurm(self, volta=0, srun=0, sbatch=0, mem=256):
@@ -106,7 +107,7 @@ class Box():
         outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{self.grid_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
         norm = f" --norm none"
-        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {mag} "
+        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_{self.filter[W]}.dat --mag {mag} "
         grid = f" --sample-mode grid"
 
         cmd = base + arm + size + inD + outD + para + norm + mag + grid
@@ -135,7 +136,7 @@ class Box():
         sample_name = f"R{pixelR}_{W}_{nn}k_m{self.mag}"
         outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
-        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_i.dat --mag {self.mag-dmag} {self.mag+dmag}"
+        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_{self.filter[W]}.dat --mag {self.mag-dmag} {self.mag+dmag}"
         norm = f" --norm none"
         cmd = base + arm + size + inD + outD + para + mag + norm
         if Ps_arm is not None:

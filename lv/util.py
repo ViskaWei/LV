@@ -97,6 +97,23 @@ class Util():
         return out
 
     @staticmethod
+    def resampleSky(sky, ww, step=5):
+        #-----------------------------------------------------
+        # resample the sky matching the spectrum
+        #-----------------------------------------------------
+        # get the breakpoints in lambda
+        #--------------------------------
+        b = list(range(1,ww.shape[0],step))
+        ws = sky[:,0]
+        cs = np.cumsum(sky[:,1])
+        #---------------------------------------------------
+        # interpolate the cumulative sky to the breakpoints
+        #---------------------------------------------------
+        f = sp.interpolate.interp1d(ws,cs, fill_value=0)
+        sky_new = np.diff(f(ww[b]))
+        return sky_new
+
+    @staticmethod
     def resample(wave, fluxs, step=10, verbose=1):
         waveL= Util.resampleWave(wave, step=step, verbose=verbose)
         L = len(waveL)
@@ -230,7 +247,27 @@ class Util():
 
 # Alex ----------------------------------------------------------------------------------------------------------------------   
     @staticmethod
-    def getSN(spec):
+    def fmn(x):    
+        return '{:02d}'.format(np.floor(x).astype(np.int32))
+
+    @staticmethod
+    def fmt(x):
+        y = np.round(np.abs(10*x)+0.2).astype(np.int32)
+        z = '{:+03.0f}'.format(y).replace('+','p')
+        if (np.sign(x)<0):
+            z = z.replace('p','m')
+        return z
+
+    @staticmethod
+    def getname(m,t,g,c,a):
+        #----------------------------------
+        # get short name for the spectrum
+        #----------------------------------
+        fname = 'T'+ Util.fmn(t)+'G'+Util.fmn(10*g)+'M'+Util.fmt(m)+'A'+Util.fmt(a)+'C'+Util.fmt(c)
+        return fname
+    
+    @staticmethod
+    def getSN(flux):
         #--------------------------------------------------
         # estimate the S/N using Stoehr et al ADASS 2008
         #    signal = median(flux(i))
@@ -238,21 +275,26 @@ class Util():
         #    median(abs(2 * flux(i) - flux(i-2) - flux(i+2)))
         #    DER_SNR = signal / noise
         #--------------------------------------------------
-        s1 = np.median(spec)
-        s2 = np.abs(2*spec-sp.ndimage.shift(spec,2)-sp.ndimage.shift(spec,-2))
+        s1 = np.median(flux)
+        s2 = np.abs(2*flux-sp.ndimage.shift(flux,2)-sp.ndimage.shift(flux,-2))
         n1 = 1.482602/np.sqrt(6.0)*np.median(s2)
         sn = s1/n1
         return sn
 
+    @staticmethod
+    def shiftSpec(flux, rv):
+        #--------------------------------------------------
+        # The radial velocity rv is given in km/sec units
+        # This must be done at the hirez pixel resolution
+        #--------------------------------------------------
+        return sp.ndimage.shift(flux, rv/3.0)
 
     @staticmethod
-    def convolveSpec(flux,step=5):
+    def convolveSpec(flux,step=5, sg=1.3):
         #---------------------------------------------------------
         # apply a line spread function to the h-pixel spectrum
         # with a width of 1.3 m-pixels. This is using the log(lambda) 
         # binning in hirez.
-        #---------------------------------------------------------
-        sg = 1.3
         #-----------------------------------
         # create resampled kernel by step
         # precompute the kernel, if there are many convolutions
@@ -263,29 +305,31 @@ class Util():
         return fspec
 
     @staticmethod
-    def makeNLArray(ss,skym):
+    def makeNLArray(ss, skym, step=5):
         #-----------------------------------------
         # choose the noise levels so that the S/N 
         # comes at around the predetermined levels
         #-----------------------------------------
-        nla = [2,5,10,20,50,100,200,500]
-        sna = [11,22,33,55,110]
+        noise_level_grid = [2,5,10,20,50,100,200,500]
+        snrList = [11,22,33,55,110]
         
-        ssm   = getModel(ss,0)
-        varm  = getVar(ssm,skym)
-        noise = getNoise(varm)  
-        NL = []
-        SN = []
-        for nl in nla:
-            ssobs = ssm + nl*noise
-            sn    = getSN(ssobs)
-            NL.append(nl)
-            SN.append(sn)
-        f = sp.interpolate.interp1d(SN,NL, fill_value=0)
-        nlarray = f(sna)
-        
-        return nlarray
+        # ssm   = Util.getModel(ss,0)
+        ssm   = Util.resampleFlux_i(ss, step)
+        varm  = Util.getVar(ssm,skym)
+        noise = Util.getNoise(varm)  
 
+        SN = []
+        for noise_level in noise_level_grid:
+            ssobs = ssm + noise_level * noise
+            sn    = Util.getSN(ssobs)
+            SN.append(sn)
+        f = sp.interpolate.interp1d(SN, noise_level_grid, fill_value=0)
+        
+        noise_level_interpd = f(snrList)  
+        return noise_level_interpd
+
+
+    
     @staticmethod
     def getVar(ssm, skym):
         #--------------------------------------------
@@ -301,18 +345,6 @@ class Util():
         return varm
 
     @staticmethod
-    def getModel(sconv,rv):
-        #-----------------------------------------------------
-        # Generate a spectrum shifted by rv. sconv is a high rez
-        # spectrum already convolved with the LSF, rv is the 
-        # radial velocity in km/s. Here we convolve once for speed, 
-        # then apply different shifts and resample.
-        #-----------------------------------------------------
-        ss1 = shiftSpec(sconv,rv)
-        ss1 = resampleSpec(ss1)    
-        return ss1
-    
-    @staticmethod
     def getNoise(varm):
         #--------------------------------------------------------
         # given the noise variance, create a noise realization
@@ -322,11 +354,12 @@ class Util():
         # Output
         #  noise: nosie realization in m-pixels
         #--------------------------------------------------------
-        noise = np.random.normal(0, 1, len(varm))*np.sqrt(varm)
+        np.random.seed(42)
+        noise = np.random.normal(0, np.sqrt(varm), len(varm))
         return noise
 
     @staticmethod
-    def getObs(sconv,skym,rv,NL):
+    def getObs(sconv,skym,rv, noise_level, step=5):
         #----------------------------------------------------
         # get a noisy spectrum for a simulated observation
         #----------------------------------------------------
@@ -334,18 +367,24 @@ class Util():
         #   sconv: the rest-frame spectrum in h-pixels, convolved
         #   skym: the sky in m-pixels
         #   rv  : the radial velocity in km/s
-        #   NL  : the noise amplitude
+        #   noise_level  : the noise amplitude
         # outputs
         #   ssm : the shifted, resampled sepectrum in m-pix
         #   varm: the variance in m-pixels
         #-----------------------------------------------
         # get shifted spec and the variance
         #-------------------------------------
-        ssm   = getModel(sconv,rv)
-        varm  = getVar(ssm,skym)
-        noise = getNoise(varm)  
+        ssm   = Util.getModel(sconv, rv, step=step)
+        varm  = Util.getVar(ssm,skym)
+        noise = Util.getNoise(varm)  
         #---------------------------------------
         # add the scaled noise to the spectrum
         #---------------------------------------
-        ssm = ssm + NL*noise
+        ssm = ssm + noise_level * noise
         return ssm
+    
+
+
+
+
+

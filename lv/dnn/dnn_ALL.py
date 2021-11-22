@@ -13,7 +13,7 @@ from lv.dnn.baseDNN import BaseDNN
 np.random.seed(922)
 
 class DNN_ALL(BaseDNN):
-    def __init__(self, arms=["BL"], grid=0, top=100, pdx=[0,1,2], N_test=1000, pc_name=""):
+    def __init__(self, arms=["BL"], grid=0, top=100, pdx=[0,1,2], N_test=1000, pc_name="", gpu=2):
         super().__init__()
         self.pdx=pdx
         self.npdx=len(pdx)
@@ -27,6 +27,7 @@ class DNN_ALL(BaseDNN):
         self.n_ftr = top * len(self.arms)
         self.pc_name = pc_name
         self.dPCs = {}
+        self.gpu = gpu
 
 
     def prepare(self, Ws=None, Rs=None, N_train=None, grid=0, isNoisy=1):
@@ -35,7 +36,11 @@ class DNN_ALL(BaseDNN):
         self.setup_scalers()
         self.prepare_trainset(Ws, Rs, N_train, grid, isNoisy)
         self.prepare_testset(Ws, Rs, self.N_test, grid, isNoisy)
+        self.init_gpu(gpu=self.gpu)
 
+
+    def init_gpu(self, gpu=0):
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
 
     def load_PCs(self, Ws=None, Rs=None, top=None):
         for W in Ws:

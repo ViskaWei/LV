@@ -19,7 +19,7 @@ from matplotlib.lines import Line2D
 from matplotlib import collections  as mc
 
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import tensorflow as tf
 tf.config.list_physical_devices('GPU') 

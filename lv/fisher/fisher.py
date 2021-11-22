@@ -27,19 +27,23 @@ class Fisher(object):
         self.DATADIR = '../data/fisher/'
 
         self.Util=Util()
-        self.Doppler=None
-        self.wave=None
-        self.wave_m=None
+        self.Doppler= None
+        self.wave   = None
+        self.wave_m = None
+        self.sky    = None
+        self.sky_m  = None
 
         self.step=self.dSteps[W]
         self.Ws = self.dWs[W]
+        self.Template = collections.namedtuple('Template',['name','sst','wwm','ssm','skym','pmt','iwm'])
+
 
 #init ---------------------------------------------------------------------------------
 
     def init(self):
         self.initPara()
-        self.initSky()
         self.initDoppler()
+        self.initSky()
 
 
     def initPara(self):
@@ -56,18 +60,19 @@ class Fisher(object):
         self.uA  = dfpara["O_M"].unique()
         self.params = ["M", "T", "L", "C", "A"]
         
-
-    def initSky(self):
-        sky = np.genfromtxt(self.DATADIR +'skybg_50_10.csv', delimiter=',')
-        sky[:, 0] = 10 * sky[:, 0]
-        self.sky = sky
-
     def initDoppler(self):
         spec = self.getSpectrum(-2.0, 8000, 2.5, R=self.Res)
         self.wave = spec[:,0]
         self.wave_m = self.Util.resampleWave(self.wave, step=self.step)
         self.wave_mask = (self.wave_m>=self.Ws[0]) & (self.wave_m<=self.Ws[1])
         self.Doppler= Doppler(self.wave_mask, self.step)
+    
+    def initSky(self):
+        sky = np.genfromtxt(self.DATADIR +'skybg_50_10.csv', delimiter=',')
+        sky[:, 0] = 10 * sky[:, 0]
+        self.sky = sky
+        self.sky_m = self.Util.resampleSky(self.sky, self.wave, step=self.step)
+
 
 
 
@@ -91,8 +96,6 @@ class Fisher(object):
 
 #Get Template---------------------------------------------------------------------------------
     def makeTemplate(self, m,t,g,c,a):
-        Template = collections.namedtuple('Template',['name','sst','wwm','ssm','skym','pmt','iwm'])
-
         #-----------------------------------------------
         # get the spectrum (n) and build the template
         #-----------------------------------------------
@@ -107,11 +110,10 @@ class Fisher(object):
         ssm  = self.Util.resampleFlux_i(sst, step=self.step)
         skym = self.Util.resampleSky(self.sky, ww, step=self.step)
         iwm  = (wwm>=7100) & (wwm<=8850)
-        temp = Template(name,sst,wwm,ssm,skym,pmt,iwm)
+        temp = self.Template(name,sst,wwm,ssm,skym,pmt,iwm)
         return temp
 
     def makeTemplate_spec(self, spec, pmt):
-        Template = collections.namedtuple('Template',['name','sst','wwm','ssm','skym','pmt','iwm'])
         #-----------------------------------------------
         # get the spectrum (n) and build the template
         #-----------------------------------------------
@@ -119,9 +121,8 @@ class Fisher(object):
         flux  = self.Util.convolveSpec(flux)
         flux_m  = self.Util.resampleFlux_i(flux, step=self.step)
         assert abs(self.wave - spec[:,0]).sum() < 1e-6            
-        sky_m = self.Util.resampleSky(self.sky, self.wave, step=self.step)
         name = self.Util.getname(*pmt)
-        temp = Template(name,flux,self.wave_m,flux_m,sky_m,pmt,self.wave_mask)
+        temp = self.Template(name, flux, self.wave_m, flux_m, self.sky_m, pmt, self.wave_mask)
         return temp
 
     def testTemplate(self,pmt = [-2.0,8000,2.5,0.0,0.25], axis=["T","L"]):
@@ -140,6 +141,7 @@ class Fisher(object):
         self.pmts = nearby_pmt
         self.pmt = pmt
         self.flux = self.Util.convolveSpec(self.specs[0][:,1])
+        self.name=self.Util.getname(*pmt)
 
 
 #Get Grid---------------------------------------------------------------------------------
@@ -172,31 +174,36 @@ class Fisher(object):
         return nearby_pmts
 
 #Get RV---------------------------------------------------------------------------------
-    def getObs_temp(self, flux_h, temp, rv, noise_level, plot=0):
-        flux_m, obsflux_m, vmobs = self.Doppler.makeObs(flux_h, 
-                                                        temp.skym, 
+    def makeTempObs(self, flux_h, rv, noise_level, pmt0=None, plot=0):
+        flux_m, obsflux_m, obsvar_m = self.Doppler.makeObs(flux_h, 
+                                                        self.sky_m, 
                                                         rv, 
                                                         noise_level, 
                                                         step=self.step)
         SN = self.Util.getSN(obsflux_m)
-        if plot: self.plotSpec(flux_m, obsflux_m, rv, SN, temp.name)
-        return obsflux_m, vmobs, SN
+        if plot: self.plotSpec(flux_m, obsflux_m, rv, SN, pmt0)
+        return obsflux_m, obsvar_m, SN
 
-    def guessRV(self, flux, obsflux_m, vmobs):
-        rv0 = self.Doppler.guessRV(flux, obsflux_m, self.wave_mask, vmobs, step=self.step)
+    def guessRV(self, flux, obsflux_m, obsvar_m):
+        rv0 = self.Doppler.guessRV(flux, obsflux_m, self.wave_mask, obsvar_m, step=self.step)
         return rv0
 
-    def testOneRV1(self, temp, rv, noise_level, plot=1):
-        obsflux_m, vmobs, SN = self.getObs_temp(temp, rv, noise_level, plot=plot)
-        fn = self.Doppler.get_LLH_fn(temp.sst, obsflux_m, vmobs)
+    def testOneRV1(self, flux_h, temp, rv, noise_level, pmt0=None,  plot=1):
+        obsflux_m, obsvar_m, SN = self.makeTempObs(flux_h, rv, noise_level, pmt0=pmt0, plot=plot)
+        print(f"Fitting with Template {temp.name}")
+        fn = self.Doppler.get_LLH_fn(temp.sst, obsflux_m, obsvar_m)
         RV = self.Doppler.getRV(fn)  
-        if np.isnan(RV): print('getRV error in '+ temp.name)
+        if np.isnan(RV): 
+            print('getRV error in '+ temp.name)
+        else:
+            error = np.abs(RV-rv) / rv *100
+            print(f"RV err={error:.02f}%")
 
         F  = self.Doppler.getFisherMatrix(RV,fn)
         det   = F[0][0]*F[1][1]-F[1][0]**2
-        print(f'sigma_z={np.sqrt(F[0][0]/det):.2f}')
+        print(f'sigma_z={np.sqrt(F[0][0]/det):.5f}')
         if plot:
-            sigz2 = self.Doppler.getFisher1(rv, temp.sst, obsflux_m, vmobs)
+            sigz2 = self.Doppler.getFisher1(rv, temp.sst, obsflux_m, obsvar_m)
             self.plotRV(fn, rv, RV, SN, sigz2)
 
         return RV, F
@@ -206,43 +213,49 @@ class Fisher(object):
 
 #plot---------------------------------------------------------------------------------
     
-    def plotSpec(self, flux_m, obsflux_m, rv, SN, name):
-        plt.figure(figsize=(8,3), facecolor='w')
+    def plotSpec(self, flux_m, obsflux_m, rv, SN, pmt0=None):
+        plt.figure(figsize=(9,3), facecolor='w')
         plt.plot(self.wave_m, obsflux_m, lw=0.2, label=f"SNR={SN:.1f}")
         plt.plot(self.wave_m, flux_m, label=f"rv={rv:.1f}")
+        if pmt0 is None: 
+            name = self.name
+        else:
+            name = self.Util.getname(*pmt0)
         plt.title(f"{name}")
         plt.legend()
         plt.xlabel("Wavelength [A]")
         plt.ylabel("Flux [erg/s/cm2/A]")
 
     def plotRV(self, fn, rv, RV, SN, sigz2):
-        v1  = np.linspace(-300  , 300   , 101)
-        v2  = np.linspace(rv - 6, rv + 6, 25)
+        rv_large  = np.linspace(-300  , 300   , 101)
+        rv_small  = np.linspace(rv - 6, rv + 6, 25)
         
         y1 = []
         y2 = []
-        for v in v1:
-            y1.append(-1 * fn(v))
-        for v in v2:
-            y2.append(-1 * fn(v))
+        for rv_i in rv_large:
+            y1.append(-1 * fn(rv_i))
+        for rv_j in rv_small:
+            y2.append(-1 * fn(rv_j))
 
         
         MLE_rv = -1 * fn(rv)
         MLE_RV = -1 * fn(RV)
 
         plt.figure(figsize=(15,6))
-        plt.plot(v1,y1,'g.-',markersize=7)    
-        plt.plot(rv, MLE_rv, 'ro')
-        plt.plot(RV, MLE_RV, 'ko')
+        plt.plot(rv_large, y1,'g.-',markersize=7, label = "llh")    
+        plt.plot(rv, MLE_rv, 'ro', label="rv")
+        plt.plot(RV, MLE_RV, 'ko', label="RV")
         ts = 'rv={:6.4f} km/s,  '.format(rv)+ 'RV={:6.4f} km/s,  '.format(RV)
         ts = ts + 'S/N={:3.1f},  '.format(SN) + 'sigz={:6.4f} km/s,  '.format(np.sqrt(sigz2))
         plt.title(ts)
+        plt.xlabel("rv [km/s]")
+        plt.ylabel("Log likelihood")
         plt.grid()
         plt.ylim((min(y1),min(y1)+(max(y1)-min(y1))*1.5))
-        plt.legend(['llh','rv(true)','RV(est)'])
+        plt.legend()
         ax = plt.gca()
         ins = ax.inset_axes([0.1,0.45,0.4,0.5])
-        ins.plot(v2,y2,'g.-',markersize=7)
+        ins.plot(rv_small,y2,'g.-',markersize=7)
         ins.plot(rv, MLE_rv, 'ro')
         ins.plot(RV, MLE_RV, 'ko')
         ins.grid()

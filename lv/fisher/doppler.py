@@ -37,11 +37,11 @@ class Doppler(object):
         pp, _ = curve_fit(Doppler.lorentz, v0, y0, pp, bounds=bb)
         return pp[1]
 
-    def getLogLik_rv(self, rv, flux, obsflux_m, var_m, nu_only=True):
-        model = self.getModel(flux, rv, step=self.step)
-        model_in_rng  = model[self.wave_mask]
-        var_in_rng  = var_m[self.wave_mask]
+    def getLogLik_rv(self, rv, tempflux_m, obsflux_m, obsvar_m, nu_only=True):
+        model = self.getModel(tempflux_m, rv, step=self.step)
+        model_in_rng   = model[self.wave_mask]
         obsflux_in_rng = obsflux_m[self.wave_mask]
+        var_in_rng     = obsvar_m[self.wave_mask]
         return Doppler.getLogLik(model_in_rng, obsflux_in_rng, var_in_rng, nu_only=nu_only)
 
 #fisher --------------------------------------------------
@@ -55,23 +55,10 @@ class Doppler(object):
         f11 = chi0
         f12 = 0.5*(phip - phim)
         f22 = - nu0 * (nup + num - 2 * nu0) + f12 ** 2
-        F = [[f11, f12],[f12,f22]]
+        F = [[f11, f12],[f12, f22]]
         return F
 
-    def getFisherMatrix0(self, rv, fn):
-        #---------------------------
-        # compute the Fisher matrix
-        #---------------------------
-        nu0, phi0, chi0 = self.getLogLik_rv(rv    , flux, obsflux_m, vmobs, nu_only=False)
-        num, phim, chim = self.getLogLik_rv(rv - 1, flux, obsflux_m, vmobs, nu_only=False)
-        nup, phip, chip = self.getLogLik_rv(rv + 1, flux, obsflux_m, vmobs, nu_only=False)
-        f11 = chi0
-        f12 = 0.5*(phip - phim)
-        f22 = - nu0 * (nup + num - 2 * nu0) + f12 ** 2
-        F = [[f11, f12],[f12,f22]]
-        return F
-
-    def getFisher1(self, rv, flux, obsflux_m, vmobs):
+    def getFisher1(self, rv, flux, obsflux_m, obsvar_m):
         #---------------------------
         # compute the Fisher matrix
         #---------------------------
@@ -85,9 +72,9 @@ class Doppler(object):
         #-----------------------------
         # get the centered difference
         #-----------------------------
-        t1  = 0.5 * (m2[self.wave_mask] - m1[self.wave_mask])
-        vm  = obsflux_m[self.wave_mask]
-        ob = vmobs[self.wave_mask]
+        t1 = 0.5 * (m2[self.wave_mask] - m1[self.wave_mask])
+        ob = obsflux_m[self.wave_mask]
+        vm = obsvar_m [self.wave_mask]
         #----------------------------------
         # build the different terms
         #----------------------------------
@@ -171,8 +158,8 @@ class Doppler(object):
         var_m = Util.getVar(flux_m, sky_m)
         noise = Util.getNoise(var_m)
         obsflux_m = flux_m + noise_level * noise
-        vmobs = var_m * noise_level**2
-        return flux_m, obsflux_m, vmobs
+        obsvar_m = var_m * noise_level**2
+        return flux_m, obsflux_m, obsvar_m
 
     @staticmethod
     def getLogLik(model, obsflux, var, nu_only=True):

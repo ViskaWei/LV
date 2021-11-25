@@ -5,22 +5,23 @@ from scipy.optimize import curve_fit
 from lv.util import Util
 
 class Doppler(object):
-    def __init__(self, wave_mask, step):
+    def __init__(self, wave_mask,step):
         self.wave_mask = wave_mask
         self.step = step
+        self.sky_mask0 = None
         self.wave = None
 
 # RV --------------------------------------------------
-    def get_LLH_fn(self, flux, obsflux_m, vmobs):
+    def get_LLH_fn(self, tempflux_m, obsflux_m0, obsvar_m0, sky_mask0=None):
         def fn(x, nu_only=True):
-            return self.getLogLik_rv(x, flux, obsflux_m, vmobs, nu_only=nu_only)
+            return self.getLogLik_rv(x, tempflux_m, obsflux_m0, obsvar_m0, 
+                                    sky_mask0=sky_mask0, nu_only=nu_only)
         return fn
         
     def getRV(self, fn):
         rv0 = self.guessRV(fn)
         out = sp.optimize.minimize(fn, rv0, method="Nelder-Mead")
 
-        # out = sp.optimize.minimize(-self.getLogLik_rv, rv0,  args=(flux, obsflux_m, vmobs), method="Nelder-Mead")
         if (out.success==True):
             RV = out.x[0]
         else:
@@ -37,12 +38,12 @@ class Doppler(object):
         pp, _ = curve_fit(Doppler.lorentz, v0, y0, pp, bounds=bb)
         return pp[1]
 
-    def getLogLik_rv(self, rv, tempflux_m, obsflux_m, obsvar_m, nu_only=True):
-        model = self.getModel(tempflux_m, rv, step=self.step)
-        model_in_rng   = model[self.wave_mask]
-        obsflux_in_rng = obsflux_m[self.wave_mask]
-        var_in_rng     = obsvar_m[self.wave_mask]
-        return Doppler.getLogLik(model_in_rng, obsflux_in_rng, var_in_rng, nu_only=nu_only)
+    def getLogLik_rv(self, rv, tempflux, obsflux_m0, obsvar_m0, sky_mask0=None, nu_only=True):
+        tempflux_m = self.getModel(tempflux, rv, step=self.step)
+        tempflux_m0   = tempflux_m[self.wave_mask]
+        if sky_mask0 is not None: 
+            tempflux_m0[sky_mask0] = 0.0
+        return Doppler.getLogLik(tempflux_m0, obsflux_m0, obsvar_m0, nu_only=nu_only)
 
 #fisher --------------------------------------------------
     def getFisherMatrix(self, rv, fn):
@@ -58,7 +59,7 @@ class Doppler(object):
         F = [[f11, f12],[f12, f22]]
         return F
 
-    def getFisher1(self, rv, flux, obsflux_m, obsvar_m):
+    def getFisher1(self, rv, flux, obsflux_m0, obsvar_m0):
         #---------------------------
         # compute the Fisher matrix
         #---------------------------
@@ -73,8 +74,11 @@ class Doppler(object):
         # get the centered difference
         #-----------------------------
         t1 = 0.5 * (m2[self.wave_mask] - m1[self.wave_mask])
-        ob = obsflux_m[self.wave_mask]
-        vm = obsvar_m [self.wave_mask]
+        ob = obsflux_m0
+        vm = obsvar_m0 
+        
+        # ob = obsflux_m[self.wave_mask]
+        # vm = obsvar_m [self.wave_mask]
         #----------------------------------
         # build the different terms
         #----------------------------------

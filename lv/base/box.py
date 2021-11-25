@@ -23,10 +23,11 @@ class Box():
         self.slurm = ""
         self.c = Constants()
         self.Util = Util()
-        self.boszR=50000
+        self.boszR=5000
         self.pixelR={"RedM": 5000, "Blue":2300, "NIR": 4300}
         self.filter={'RedM':'i', 'Blue':'g', 'NIR':'y'}
         self.mag=19
+        self.DATADIR = "/datascope/subaru/data/pfsspec/"
 
     def get_slurm(self, volta=0, srun=0, sbatch=0, mem=256):
         slurm=""
@@ -78,7 +79,7 @@ class Box():
         print(R, sep="/n/n")
         pp = self.c.dRs[R][:3]
         base = f"./scripts/build_rbf.sh {self.slurm} grid bosz --config ./configs/import/stellar/bosz/rbf/"
-        ins = f" --in /scratch/ceph/dobos/data/pfsspec/import/stellar/grid/bosz_{boszR}"
+        ins = f" --in {self.DATADIR}/import/stellar/grid/bosz_{boszR}"
         out =  f" --out /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_{boszR}_{self.c.dRR[R]}/"
         param = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} "
         cmd = base + ins+ out + param

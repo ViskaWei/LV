@@ -1,0 +1,1 @@
+./scripts/build_rbf.sh  grid bosz --config ./configs/import/stellar/bosz/rbf/ --in /datascope/subaru/data/pfsspec/import/stellar/grid/bosz/bosz_5000 --out /datascope/subaru/data/pfsspec/import/stellar/rbf/bosz_5000_BHB/ --Fe_H -2.5 -1.5 --T_eff 6750 9500 --log_g  2.0 3.5 

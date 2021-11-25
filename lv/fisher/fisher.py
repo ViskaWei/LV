@@ -30,8 +30,12 @@ class Fisher(object):
         self.Doppler= None
         self.wave   = None
         self.wave_m = None
+        self.wave_m0 = None
         self.sky    = None
         self.sky_m  = None
+        self.sky_m0 = None
+        self.lb = 6250
+        self.ub = 9750
 
         self.step=self.dSteps[W]
         self.Ws = self.dWs[W]
@@ -65,6 +69,7 @@ class Fisher(object):
         self.wave = spec[:,0]
         self.wave_m = self.Util.resampleWave(self.wave, step=self.step)
         self.wave_mask = (self.wave_m>=self.Ws[0]) & (self.wave_m<=self.Ws[1])
+        self.wave_m0 = self.wave_m[self.wave_mask]
         self.Doppler= Doppler(self.wave_mask, self.step)
     
     def initSky(self):
@@ -72,9 +77,7 @@ class Fisher(object):
         sky[:, 0] = 10 * sky[:, 0]
         self.sky = sky
         self.sky_m = self.Util.resampleSky(self.sky, self.wave, step=self.step)
-
-
-
+        self.sky_m0 =self.sky_m[self.wave_mask]
 
 #Get Spectrum---------------------------------------------------------------------------------
     def getSpectrum(self, MH, TE, LG, CH=0.0, AH=0.25, R=50000, lb=6250, ub=9750):
@@ -109,7 +112,7 @@ class Fisher(object):
         wwm  = self.Util.resampleWave(ww, step=self.step)
         ssm  = self.Util.resampleFlux_i(sst, step=self.step)
         skym = self.Util.resampleSky(self.sky, ww, step=self.step)
-        iwm  = (wwm>=7100) & (wwm<=8850)
+        iwm  = (wwm>=self.Ws[0]) & (wwm<=self.Ws[1])
         temp = self.Template(name,sst,wwm,ssm,skym,pmt,iwm)
         return temp
 
@@ -129,7 +132,7 @@ class Fisher(object):
         nearby_pmt=self.get_nearby_grid_nd(pmt,axis=axis, step=1)
         specs = []
         for p in nearby_pmt:
-            spec = self.getSpectrum(*p, R=self.Res, lb=6250, ub=9750)
+            spec = self.getSpectrum(*p, R=self.Res, lb=self.lb, ub=self.ub)
             specs.append(spec)
         self.specs = specs
         temps = []
@@ -142,7 +145,6 @@ class Fisher(object):
         self.pmt = pmt
         self.flux = self.Util.convolveSpec(self.specs[0][:,1])
         self.name=self.Util.getname(*pmt)
-
 
 #Get Grid---------------------------------------------------------------------------------
     def get_nearby_grid_1d(self, pmt, axis="T", step=1, out=[]):
@@ -175,46 +177,51 @@ class Fisher(object):
 
 #Get RV---------------------------------------------------------------------------------
     def makeTempObs(self, flux_h, rv, noise_level, pmt0=None, plot=0):
-        flux_m, obsflux_m, obsvar_m = self.Doppler.makeObs(flux_h, 
-                                                        self.sky_m, 
-                                                        rv, 
-                                                        noise_level, 
-                                                        step=self.step)
-        SN = self.Util.getSN(obsflux_m)
-        if plot: self.plotSpec(flux_m, obsflux_m, rv, SN, pmt0)
-        return obsflux_m, obsvar_m, SN
+        flux_m, obsflux_m, obsvar_m = self.Doppler.makeObs(flux_h, self.sky_m, rv, 
+                                                            noise_level, step=self.step)
+        if plot: self.plotSpec(flux_m, obsflux_m, rv, pmt0)
+        return obsflux_m[self.wave_mask], obsvar_m[self.wave_mask]
 
-    def guessRV(self, flux, obsflux_m, obsvar_m):
-        rv0 = self.Doppler.guessRV(flux, obsflux_m, self.wave_mask, obsvar_m, step=self.step)
-        return rv0
+    def testOneRV1(self, flux_h, temp, rv, noise_level, pmt0=None, sky_mask0=None, plot=1):
+        obsflux_m0, obsvar_m0 = self.makeTempObs(flux_h, rv, noise_level, pmt0=pmt0, plot=plot)
+        RV, F = self.evalRV(temp, obsflux_m0, obsvar_m0, rv, sky_mask0=sky_mask0, plot=plot)
+        return RV, F
 
-    def testOneRV1(self, flux_h, temp, rv, noise_level, pmt0=None,  plot=1):
-        obsflux_m, obsvar_m, SN = self.makeTempObs(flux_h, rv, noise_level, pmt0=pmt0, plot=plot)
+    def evalRV(self, temp, obsflux_m0, obsvar_m0, rv, sky_mask0 = None, plot=1):
+        tempflux = temp.sst
+        SN = self.Util.getSN(obsflux_m0)
+        if sky_mask0 is not None:
+            obsflux_m0[sky_mask0] = 0.0
+            # obsvar_m0[sky_mask0]  = 10 * obsvar_m0[sky_mask0]
         print(f"Fitting with Template {temp.name}")
-        fn = self.Doppler.get_LLH_fn(temp.sst, obsflux_m, obsvar_m)
+        fn = self.Doppler.get_LLH_fn(tempflux, obsflux_m0, obsvar_m0, sky_mask0=sky_mask0)
         RV = self.Doppler.getRV(fn)  
         if np.isnan(RV): 
             print('getRV error in '+ temp.name)
         else:
             error = np.abs(RV-rv) / rv *100
             print(f"RV err={error:.02f}%")
-
         F  = self.Doppler.getFisherMatrix(RV,fn)
         det   = F[0][0]*F[1][1]-F[1][0]**2
         print(f'sigma_z={np.sqrt(F[0][0]/det):.5f}')
         if plot:
-            sigz2 = self.Doppler.getFisher1(rv, temp.sst, obsflux_m, obsvar_m)
+            sigz2 = self.Doppler.getFisher1(rv, tempflux, obsflux_m0, obsvar_m0)
             self.plotRV(fn, rv, RV, SN, sigz2)
-
         return RV, F
+
+    def getSkyMask(self, ratio=0.8):
+        sky_cut = np.quantile(self.sky_m0, ratio)
+        sky_mask0 = self.sky_m0 > sky_cut
+        return sky_mask0
 
 #Sigma---------------------------------------------------------------------------------
 
 
 #plot---------------------------------------------------------------------------------
     
-    def plotSpec(self, flux_m, obsflux_m, rv, SN, pmt0=None):
+    def plotSpec(self, flux_m, obsflux_m, rv, pmt0=None):
         plt.figure(figsize=(9,3), facecolor='w')
+        SN = self.Util.getSN(obsflux_m)
         plt.plot(self.wave_m, obsflux_m, lw=0.2, label=f"SNR={SN:.1f}")
         plt.plot(self.wave_m, flux_m, label=f"rv={rv:.1f}")
         if pmt0 is None: 
@@ -243,8 +250,8 @@ class Fisher(object):
 
         plt.figure(figsize=(15,6))
         plt.plot(rv_large, y1,'g.-',markersize=7, label = "llh")    
-        plt.plot(rv, MLE_rv, 'ro', label="rv")
-        plt.plot(RV, MLE_RV, 'ko', label="RV")
+        plt.plot(rv, MLE_rv, 'ro', label=f"rv {MLE_rv:.2f}")
+        plt.plot(RV, MLE_RV, 'ko', label=f"RV{MLE_RV:.2f}")
         ts = 'rv={:6.4f} km/s,  '.format(rv)+ 'RV={:6.4f} km/s,  '.format(RV)
         ts = ts + 'S/N={:3.1f},  '.format(SN) + 'sigz={:6.4f} km/s,  '.format(np.sqrt(sigz2))
         plt.title(ts)

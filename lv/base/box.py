@@ -15,7 +15,7 @@ import mpl_toolkits.mplot3d as mp3d
 from scipy import stats
 from lv.pca.basePCA import BasePCA
 from lv.constants import Constants
-from lv.util import Util
+from lv.util.util import Util
 
 class Box():
     def __init__(self, volta=0):
@@ -28,6 +28,8 @@ class Box():
         self.filter={'RedM':'i', 'Blue':'g', 'NIR':'y'}
         self.mag=19
         self.DATADIR = "/datascope/subaru/data/pfsspec/"
+        # self.DATADIR = "/scratch/ceph/swei20/data/pfsspec/"
+        self.PARADIR = "../data/"
 
     def get_slurm(self, volta=0, srun=0, sbatch=0, mem=256):
         slurm=""
@@ -43,14 +45,16 @@ class Box():
         self.slurm = slurm + " -t 72:0:0"
 
     def init_para(self):
-        NORM_PATH = "/scratch/ceph/szalay/swei20/AE/norm_flux.h5"
-        with h5py.File(NORM_PATH, 'r') as f:
-            para = f['para'][()]
-        MH    = para[:,0]
-        Teff  = para[:,1]
-        logG  = para[:,2]
-        CM    = para[:,3]
-        ALPHA = para[:,4]
+        # NORM_PATH = "/scratch/ceph/szalay/swei20/AE/norm_flux.h5"
+        # with h5py.File(NORM_PATH, 'r') as f:
+        #     para = f['para'][()]
+        para = np.genfromtxt(self.PARADIR +'para.csv', delimiter=',')
+
+        MH    = para[:,5]
+        Teff  = para[:,6]
+        logG  = para[:,7]
+        CM    = para[:,8]
+        ALPHA = para[:,9]
         uM = np.unique(MH)
         uT = np.unique(Teff)
         uG = np.unique(logG)
@@ -79,17 +83,17 @@ class Box():
         print(R, sep="/n/n")
         pp = self.c.dRs[R][:3]
         base = f"./scripts/build_rbf.sh {self.slurm} grid bosz --config ./configs/import/stellar/bosz/rbf/"
-        ins = f" --in {self.DATADIR}/import/stellar/grid/bosz_{boszR}"
-        out =  f" --out /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_{boszR}_{self.c.dRR[R]}/"
+        ins = f" --in {self.DATADIR}import/stellar/grid/bosz_{boszR}"
+        out =  f" --out {self.DATADIR}import/stellar/rbf/bosz_{boszR}_{self.c.dRR[R]}/"
         param = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} "
         cmd = base + ins+ out + param
         if self.boszR is None: self.boszR=boszR
         print(cmd)
     
-    def step2_RBF(self, mkdir=1, boszR=5000):
+    def step2_RBF(self, mkdir=0, boszR=5000):
         if mkdir: 
             for R in self.c.Rnms:
-                os.mkdir(f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/")  
+                os.mkdir(f"{self.DATADIR}import/stellar/rbf/bosz_{boszR}_{self.c.dRR[R]}/")  
         for R in self.c.Rnms:
             self.get_rbf_cmd(R, boszR=boszR)
 
@@ -105,7 +109,7 @@ class Box():
         inD  = f" --in /scratch/ceph/dobos/data/pfsspec/import/stellar/grid/bosz_50000"
         
         if self.grid_name is None: self.grid_name = f"R{pixelR}_{W}_m{mag}"
-        outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{self.grid_name}"
+        outD = f" --out {self.DATADIR}train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{self.grid_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
         norm = f" --norm none"
         mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_{self.filter[W]}.dat --mag {mag} "
@@ -133,16 +137,16 @@ class Box():
         base = f"./scripts/prepare.sh {self.slurm} model bosz-rbf pfs --config ./configs/infer/pfs/bosz/nowave/prepare/train.json"
         arm  = f"  ./configs/infer/pfs/bosz/nowave/inst_pfs_{w}.json"
         size = f" --chunk-size {chunk} --sample-count {N}"
-        inD  = f" --in /scratch/ceph/swei20/data/pfsspec/import/stellar/rbf/bosz_{self.boszR}_{self.c.dRR[R]}/rbf"
+        inD  = f" --in {self.DATADIR}import/stellar/rbf/bosz_{self.boszR}_{self.c.dRR[R]}/rbf"
         sample_name = f"R{pixelR}_{W}_{nn}k_m{self.mag}"
-        outD = f" --out /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name}"
+        outD = f" --out {self.DATADIR}train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
         mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_{self.filter[W]}.dat --mag {self.mag-dmag} {self.mag+dmag}"
         norm = f" --norm none"
         cmd = base + arm + size + inD + outD + para + mag + norm
         if Ps_arm is not None:
             sample_name_params = f"R{self.pixelR[Ps_arm]}_{Ps_arm}_{nn}k_m{self.mag}"
-            params = f" --match-params /scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name_params}/"
+            params = f" --match-params {self.DATADIR}train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name_params}/"
             cmd += params
         print(cmd)
 
@@ -155,7 +159,7 @@ class Box():
     def load_laszlo(self, R, W="RedM", N=None, DATA_PATH=None, grid=False):
         RR = self.c.dRR[R]
         if DATA_PATH is None: 
-            DATA_DIR =f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/laszlo/"
+            DATA_DIR =f"{self.DATADIR}train/pfs_stellar_model/dataset/{RR}/laszlo/"
             if grid: 
                 name = f"R{self.pixelR[W]}_{W}_m{self.mag}/"
             else:
@@ -187,7 +191,7 @@ class Box():
     def convert(self, R, W="RedM", N=None, step=20, grid=0, DATA_PATH=None):
         wave, flux, error, para, snr = self.load_laszlo(R, W=W, N=N, grid=grid, DATA_PATH=DATA_PATH)  
         RR = self.c.dRR[R]
-        SAVE_DIR = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/"
+        SAVE_DIR = f"{self.DATADIR}train/pfs_stellar_model/dataset/{RR}/"
         w = self.c.dWw[W][1]
         ws = self.c.dWs[w]
         if grid: 
@@ -217,7 +221,7 @@ class Box():
         for RR in self.c.RRnms:
             if not os.path.isdir(name):
                 os.mkdir(name)
-    # os.mkdir(f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/snr/")
+    # os.mkdir(f"{self.DATADIR}train/pfs_stellar_model/dataset/{RR}/snr/")
 
 
 
@@ -236,7 +240,7 @@ class Box():
     #     wave, flux, error, para, snr = self.load_dataset(R, W=W, N=N, grid=0)  
     #     RR = self.c.dRR[R]
     #     nn = N // 1000
-    #     SAVE_DIR = f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/{RR}/"
+    #     SAVE_DIR = f"{self.DATADIR}train/pfs_stellar_model/dataset/{RR}/"
     #     if not os.path.isdir(SAVE_DIR):
     #         os.mkdir(SAVE_DIR)
     #     SAVE_PATH = SAVE_DIR + f"{W}_R{self.pixelR}_{nn}k{self.mag_name}.h5"

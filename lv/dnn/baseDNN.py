@@ -10,7 +10,7 @@ from tqdm import tqdm
 from scipy.stats import chi2 as chi2
 
 from lv.constants import Constants as c
-from lv.util import Util
+from lv.util.util import Util
 from sklearn.preprocessing import MinMaxScaler
 from matplotlib.patches import Rectangle, Ellipse, Patch
 import matplotlib.transforms as transforms

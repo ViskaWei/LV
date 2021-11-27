@@ -7,7 +7,7 @@ from sklearn.ensemble import RandomForestRegressor,RandomForestClassifier
 
 from matplotlib import pyplot as plt
 from lv.constants import Constants
-from lv.util import Util
+from lv.util.util import Util
 
 
 class BasePCA(object):

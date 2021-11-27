@@ -14,7 +14,7 @@ import seaborn as sns
 from sklearn.ensemble import RandomForestRegressor,RandomForestClassifier
 
 from lv.constants import Constants as c
-from lv.util import Util as u
+from lv.util.util import Util as u
 
 class PCA(object):
     def __init__(self):

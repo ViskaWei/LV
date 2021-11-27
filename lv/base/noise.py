@@ -8,7 +8,7 @@ import seaborn as sns
 import h5py
 import scipy as sp
 from lv.constants import Constants as c
-from lv.util import Util as u
+from lv.util.util import Util as u
 
 class Noise():
     def __init__(self):

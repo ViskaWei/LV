@@ -16,20 +16,20 @@ from numpy import linalg
 from scipy.optimize import curve_fit
 from lv import flux
 from lv.base.specloader import getSpectrum
-from lv.util import Util
+from lv.util.util import Util
 from .doppler import Doppler    
 
 class Fisher(object):
     def __init__(self, W="RedM", Res=50000):
         self.Res = Res
-        self.dSteps = {"RedM":5}
-        self.dWs = {"RedM":[7100,8850]}
+        self.dSteps = {"RedM":5, "RL":200}
+        self.dWs = {"RedM":[7100,8850], "RL":[7100,8850]}
         self.DATADIR = '../data/fisher/'
 
         self.Util=Util()
         self.Doppler= None
         self.wave   = None
-        self.wave_m = None
+        self.wave0 = None
         self.wave_m0 = None
         self.sky    = None
         self.sky_m  = None
@@ -66,18 +66,18 @@ class Fisher(object):
         
     def initDoppler(self):
         spec = self.getSpectrum(-2.0, 8000, 2.5, R=self.Res)
-        self.wave = spec[:,0]
-        self.wave_m = self.Util.resampleWave(self.wave, step=self.step)
+        self.wave0 = spec[:,0]
+        self.wave_m = self.Util.resampleWave(self.wave0, step=self.step)
         self.wave_mask = (self.wave_m>=self.Ws[0]) & (self.wave_m<=self.Ws[1])
-        self.wave_m0 = self.wave_m[self.wave_mask]
+        self.wave = self.wave_m[self.wave_mask]
         self.Doppler= Doppler(self.wave_mask, self.step)
     
     def initSky(self):
         sky = np.genfromtxt(self.DATADIR +'skybg_50_10.csv', delimiter=',')
         sky[:, 0] = 10 * sky[:, 0]
-        self.sky = sky
-        self.sky_m = self.Util.resampleSky(self.sky, self.wave, step=self.step)
-        self.sky_m0 =self.sky_m[self.wave_mask]
+        self.sky0 = sky
+        self.sky_m = self.Util.resampleSky(sky, self.wave0, step=self.step)
+        self.sky =self.sky_m[self.wave_mask]
 
 #Get Spectrum---------------------------------------------------------------------------------
     def getSpectrum(self, MH, TE, LG, CH=0.0, AH=0.25, R=50000, lb=6250, ub=9750):
@@ -123,7 +123,7 @@ class Fisher(object):
         flux  = spec[:,1]
         flux  = self.Util.convolveSpec(flux)
         flux_m  = self.Util.resampleFlux_i(flux, step=self.step)
-        assert abs(self.wave - spec[:,0]).sum() < 1e-6            
+        assert abs(self.wave0 - spec[:,0]).sum() < 1e-6            
         name = self.Util.getname(*pmt)
         temp = self.Template(name, flux, self.wave_m, flux_m, self.sky_m, pmt, self.wave_mask)
         return temp
@@ -176,14 +176,14 @@ class Fisher(object):
         return nearby_pmts
 
 #Get RV---------------------------------------------------------------------------------
-    def makeTempObs(self, flux_h, rv, noise_level, pmt0=None, plot=0):
+    def makeTempObs_rv(self, rv, flux_h, noise_level, pmt0=None, plot=0):
         flux_m, obsflux_m, obsvar_m = self.Doppler.makeObs(flux_h, self.sky_m, rv, 
                                                             noise_level, step=self.step)
         if plot: self.plotSpec(flux_m, obsflux_m, rv, pmt0)
         return obsflux_m[self.wave_mask], obsvar_m[self.wave_mask]
 
     def testOneRV1(self, flux_h, temp, rv, noise_level, pmt0=None, sky_mask0=None, plot=1):
-        obsflux_m0, obsvar_m0 = self.makeTempObs(flux_h, rv, noise_level, pmt0=pmt0, plot=plot)
+        obsflux_m0, obsvar_m0 = self.makeTempObs_rv(rv, flux_h, noise_level, pmt0=pmt0, plot=plot)
         RV, F = self.evalRV(temp, obsflux_m0, obsvar_m0, rv, sky_mask0=sky_mask0, plot=plot)
         return RV, F
 

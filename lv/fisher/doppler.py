@@ -2,7 +2,7 @@ import numpy as np
 import scipy as sp
 from scipy.optimize import curve_fit
 
-from lv.util import Util
+from lv.util.util import Util
 
 class Doppler(object):
     def __init__(self, wave_mask,step):

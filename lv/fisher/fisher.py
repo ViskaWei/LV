@@ -4,17 +4,8 @@ import pandas as pd
 
 import os
 import collections
-import copy
-import time
-import urllib
-import bz2
-import h5py
 
 import matplotlib.pyplot as plt
-from scipy import stats
-from numpy import linalg
-from scipy.optimize import curve_fit
-from lv import flux
 from lv.base.specloader import getSpectrum
 from lv.util.util import Util
 from .doppler import Doppler    

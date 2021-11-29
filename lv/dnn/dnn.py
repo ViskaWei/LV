@@ -18,7 +18,7 @@ from tensorflow.keras.metrics import MeanSquaredError, RootMeanSquaredError
 from tensorflow.keras.callbacks import Callback, EarlyStopping, ModelCheckpoint, TensorBoard, ReduceLROnPlateau
 import warnings
 import matplotlib.pyplot as plt
-from lv.constants import Constants as c
+from lv.util.constants import Constants as c
 warnings.filterwarnings("ignore")
 # import tensorflow.python.keras.optimizer_v2 as ko
 

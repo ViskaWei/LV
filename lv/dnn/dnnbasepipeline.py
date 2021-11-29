@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from .dnn import DNN 
-from lv.constants import Constants as c
+from lv.util.constants import Constants as c
 from sklearn.preprocessing import MinMaxScaler
 from matplotlib.patches import Rectangle
 

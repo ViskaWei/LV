@@ -11,8 +11,7 @@ import multiprocessing
 import numbers
 from collections import Iterable
 
-from pfsspec.constants import Constants
-import pfsspec.util as util
+from lv.util.util import Util
 
 class PfsObject():
     def __setstate__(self, state):
@@ -49,11 +48,11 @@ class PfsObject():
 
     def get_arg(self, name, old_value, args=None):
         args = args or self.args
-        return util.get_arg(name, old_value, args)
+        return Util().get_arg(name, old_value, args)
 
     def is_arg(self, name, args=None):
         args = args or self.args
-        return util.is_arg(name, args)
+        return Util().is_arg(name, args)
 
     def get_format(self, filename):
         fn, ext = os.path.splitext(filename)
@@ -410,7 +409,7 @@ class PfsObject():
         else:
             raise NotImplementedError()
 
-    def plot_getax(self, ax=None, xlim=Constants.DEFAULT_PLOT_WAVE_RANGE, ylim=None):
+    def plot_getax(self, ax=None, xlim=[3750, 12650], ylim=None):
         if ax is None:
             ax = plt.gca()
         if xlim is not None:
@@ -419,5 +418,5 @@ class PfsObject():
             ax.set_ylim(ylim)
         return ax
 
-    def plot(self, ax=None, xlim=Constants.DEFAULT_PLOT_WAVE_RANGE, labels=True):
+    def plot(self, ax=None, xlim=[3750, 12650], labels=True):
         raise NotImplementedError()

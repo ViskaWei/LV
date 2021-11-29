@@ -13,18 +13,13 @@ from .doppler import Doppler
 class Fisher(object):
     def __init__(self, W="RedM", Res=50000):
         self.Res = Res
-        self.dSteps = {"RedM":5, "RL":200}
-        self.dWs = {"RedM":[7100,8850], "RL":[7100,8850]}
+        self.dSteps = {"RedM":5, "RL":200, "Rtest":0}
+        self.dWs = {"RedM":[7100,8850], "RL":[7100,8850], "Rtest":[7100,8850]}
         self.DATADIR = '../data/fisher/'
 
         self.Util=Util()
         self.Doppler= None
-        self.wave   = None
-        self.wave0 = None
-        self.wave_m0 = None
-        self.sky    = None
-        self.sky_m  = None
-        self.sky_m0 = None
+
         self.lb = 6250
         self.ub = 9750
 
@@ -33,13 +28,8 @@ class Fisher(object):
         self.Template = collections.namedtuple('Template',['name','sst','wwm','ssm','skym','pmt','iwm'])
 
 
+
 #init ---------------------------------------------------------------------------------
-
-    def init(self):
-        self.initPara()
-        self.initDoppler()
-        self.initSky()
-
 
     def initPara(self):
         dfpara=pd.read_csv(self.DATADIR +"para.csv")
@@ -54,24 +44,15 @@ class Fisher(object):
         self.uC  = dfpara["C_M"].unique()
         self.uA  = dfpara["O_M"].unique()
         self.params = ["M", "T", "L", "C", "A"]
+        self.pnames = ["[M/H]", "Teff","logG", "Carbon","Alpha"]
         
-    def initDoppler(self):
-        spec = self.getSpectrum(-2.0, 8000, 2.5, R=self.Res)
-        self.wave0 = spec[:,0]
-        self.wave_m = self.Util.resampleWave(self.wave0, step=self.step)
-        self.wave_mask = (self.wave_m>=self.Ws[0]) & (self.wave_m<=self.Ws[1])
-        self.wave = self.wave_m[self.wave_mask]
-        self.Doppler= Doppler(self.wave_mask, self.step)
-    
     def initSky(self):
         sky = np.genfromtxt(self.DATADIR +'skybg_50_10.csv', delimiter=',')
         sky[:, 0] = 10 * sky[:, 0]
         self.sky0 = sky
-        self.sky_m = self.Util.resampleSky(sky, self.wave0, step=self.step)
-        self.sky =self.sky_m[self.wave_mask]
 
 #Get Spectrum---------------------------------------------------------------------------------
-    def getSpectrum(self, MH, TE, LG, CH=0.0, AH=0.25, R=50000, lb=6250, ub=9750):
+    def getSpectrum(self, MH, TE, LG, CH=0.0, AH=0.0, R=50000, lb=6250, ub=9750):
             # first check if the values are a valid grid location
     #------------------------------------------------------
         if (~self.isValidGrid(MH, TE, LG, CH, AH)):
@@ -89,23 +70,6 @@ class Fisher(object):
         return ix.any()
 
 #Get Template---------------------------------------------------------------------------------
-    def makeTemplate(self, m,t,g,c,a):
-        #-----------------------------------------------
-        # get the spectrum (n) and build the template
-        #-----------------------------------------------
-        name = self.Util.getname(m,t,g,c,a)
-        pmt  = (m,t,g,c,a)
-        o    = self.getSpectrum(m,t,g,c,a)
-        ww   = o[:,0]
-        sst  = o[:,1]
-        sst  = self.Util.convolveSpec(sst)
-        
-        wwm  = self.Util.resampleWave(ww, step=self.step)
-        ssm  = self.Util.resampleFlux_i(sst, step=self.step)
-        skym = self.Util.resampleSky(self.sky, ww, step=self.step)
-        iwm  = (wwm>=self.Ws[0]) & (wwm<=self.Ws[1])
-        temp = self.Template(name,sst,wwm,ssm,skym,pmt,iwm)
-        return temp
 
     def makeTemplate_spec(self, spec, pmt):
         #-----------------------------------------------
@@ -136,6 +100,33 @@ class Fisher(object):
         self.pmt = pmt
         self.flux = self.Util.convolveSpec(self.specs[0][:,1])
         self.name=self.Util.getname(*pmt)
+
+# likelihood---------------------------------------------------------------------------------
+    @staticmethod
+    def getLogLik(model, obsflux, var, nu_only=True):
+        phi = np.sum(np.divide(np.multiply(obsflux, model), var))
+        chi = np.sum(np.divide(np.multiply(model  , model), var))
+        nu  = phi / np.sqrt(chi)    
+        if nu_only: 
+            return -nu
+        else:
+            return nu, phi, chi
+
+    @staticmethod
+    def lorentz(x, a,b,c,d):
+        return a/(1+(x-b)**2/c**2) + d
+
+    def estimate(self, fn, x0=None, bnds=None):
+        if x0 is None: x0 = self.guessEstimation(fn)
+        out = sp.optimize.minimize(fn, x0, bounds = bnds, method="Nelder-Mead")
+        if (out.success==True):
+            X = out.x[0]
+        else:
+            X = np.nan
+        return X
+
+    def guessEstimation(self, fn):
+        pass
 
 #Get Grid---------------------------------------------------------------------------------
     def get_nearby_grid_1d(self, pmt, axis="T", step=1, out=[]):
@@ -210,19 +201,6 @@ class Fisher(object):
 
 #plot---------------------------------------------------------------------------------
     
-    def plotSpec(self, flux_m, obsflux_m, rv, pmt0=None):
-        plt.figure(figsize=(9,3), facecolor='w')
-        SN = self.Util.getSN(obsflux_m)
-        plt.plot(self.wave_m, obsflux_m, lw=0.2, label=f"SNR={SN:.1f}")
-        plt.plot(self.wave_m, flux_m, label=f"rv={rv:.1f}")
-        if pmt0 is None: 
-            name = self.name
-        else:
-            name = self.Util.getname(*pmt0)
-        plt.title(f"{name}")
-        plt.legend()
-        plt.xlabel("Wavelength [A]")
-        plt.ylabel("Flux [erg/s/cm2/A]")
 
     def plotRV(self, fn, rv, RV, SN, sigz2):
         rv_large  = np.linspace(-300  , 300   , 101)

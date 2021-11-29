@@ -14,7 +14,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d as mp3d
 from scipy import stats
 from lv.pca.basePCA import BasePCA
-from lv.constants import Constants
+from lv.util.constants import Constants
 from lv.util.util import Util
 
 class Box():

@@ -6,7 +6,7 @@ from tqdm import tqdm
 from sklearn.ensemble import RandomForestRegressor,RandomForestClassifier
 
 from matplotlib import pyplot as plt
-from lv.constants import Constants
+from lv.util.constants import Constants
 from lv.util.util import Util
 
 

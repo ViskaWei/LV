@@ -7,7 +7,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from .dnn import DNN 
 from tqdm import tqdm
-from lv.constants import Constants as c
+from lv.util.constants import Constants as c
 from lv.dnn.baseDNN import BaseDNN
 
 np.random.seed(922)

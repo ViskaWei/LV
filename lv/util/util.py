@@ -20,6 +20,25 @@ class Util():
         pass
 #--------------------
     @staticmethod
+    def is_float(str):
+        try:
+            float(str)
+            return True
+        except ValueError:
+            return False
+    
+    @staticmethod
+    def get_arg(name, old_value, args):
+        if name in args and args[name] is not None:
+            return args[name]
+        else:
+            return old_value
+
+    @staticmethod
+    def is_arg(name, args):
+        return name in args and args[name] is not None
+
+    @staticmethod
     def func_fullname(f):
         m = sys.modules[f.__module__]
         return '{}.{}'.format(m.__name__, f.__qualname__)
@@ -71,19 +90,23 @@ class Util():
 
     @staticmethod
     def resampleWave(wave,step=5, verbose=1):
-        #-----------------------------------------------------
-        # resample the wavelengths by a factor step
-        #-----------------------------------------------------
-        w = np.cumsum(np.log(wave))
-        b = list(range(1,wave.shape[0],step))
-        db = np.diff(w[b])
-        dd = (db/step)
-        wave1 = np.exp(dd) 
+        if step==0:
+            wave1 = wave
+        else:
+            #-----------------------------------------------------
+            # resample the wavelengths by a factor step
+            #-----------------------------------------------------
+            w = np.cumsum(np.log(wave))
+            b = list(range(1,wave.shape[0],step))
+            db = np.diff(w[b])
+            dd = (db/step)
+            wave1 = np.exp(dd) 
         if verbose: Util.print_res(wave1)
         return wave1
 
     @staticmethod
     def resampleFlux_i(flux, step=5):
+        if step==0: return flux
         #-----------------------------------------------------
         # resample the spectrum by a factor step
         #-----------------------------------------------------
@@ -95,26 +118,34 @@ class Util():
 
     @staticmethod
     def resampleFlux(fluxs, L,step=5):
+        if step == 0: return fluxs
         out = np.zeros((len(fluxs), L))
         for ii, flux in enumerate(fluxs):
             out[ii] = Util.resampleFlux_i(flux, step=step)
         return out
 
     @staticmethod
-    def resampleSky(sky, ww, step=5):
+    def resampleSky(sky, wave_grid, step=5):
         #-----------------------------------------------------
         # resample the sky matching the spectrum
         #-----------------------------------------------------
-        # get the breakpoints in lambda
-        #--------------------------------
-        b = list(range(1,ww.shape[0],step))
         ws = sky[:,0]
         cs = np.cumsum(sky[:,1])
+        f = sp.interpolate.interp1d(ws,cs, fill_value=0)
+        #----------------------------------------------------
+        # get the breakpoints in lambda
+        #--------------------------------
+
         #---------------------------------------------------
         # interpolate the cumulative sky to the breakpoints
         #---------------------------------------------------
-        f = sp.interpolate.interp1d(ws,cs, fill_value=0)
-        sky_new = np.diff(f(ww[b]))
+        if step==0: 
+            sky_new = np.diff(f(wave_grid))
+            sky_new = np.insert(sky_new, 0, f(wave_grid[0]))
+        else:
+            b = list(range(1,wave_grid.shape[0],step))
+            sky_new = np.diff(f(wave_grid[b]))
+        # assert sky_new.shape == wave_grid.shape
         return sky_new
 
     @staticmethod

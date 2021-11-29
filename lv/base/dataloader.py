@@ -61,6 +61,7 @@ class DataLoader(object):
     #     return flux[:, ::ds], wave[::ds]
 
     def resampleSpec(self, flux, step):
+        if step==0: return flux
         c = np.cumsum(flux,axis=1)
         b = list(range(1,flux.shape[1],step))
         db = np.diff(c[:,b],axis=1)
@@ -68,6 +69,7 @@ class DataLoader(object):
         return dd
 
     def resampleWave(self, wave,step):
+        if step==0: return wave
         w = np.cumsum(np.log(wave))
         b = list(range(1,wave.shape[0],step))
         db = np.diff(w[b])

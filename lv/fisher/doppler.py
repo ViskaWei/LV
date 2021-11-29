@@ -59,13 +59,13 @@ class Doppler(object):
         F = [[f11, f12],[f12, f22]]
         return F
 
-    def getFisher1(self, rv, flux, obsflux_m0, obsvar_m0):
+    def getFisher1(self, rv, flux, obsflux_m0, obsvar_m0, drv=1):
         #---------------------------
         # compute the Fisher matrix
         #---------------------------
         m0 = self.getModel(flux, rv    , step=self.step)
-        m2 = self.getModel(flux, rv + 1, step=self.step)
-        m1 = self.getModel(flux, rv - 1, step=self.step)
+        m2 = self.getModel(flux, rv + drv, step=self.step)
+        m1 = self.getModel(flux, rv - drv, step=self.step)
         #---------------------------------
         # clip to the spectrograph range
         #---------------------------------
@@ -73,7 +73,7 @@ class Doppler(object):
         #-----------------------------
         # get the centered difference
         #-----------------------------
-        t1 = 0.5 * (m2[self.wave_mask] - m1[self.wave_mask])
+        t1 = (m2[self.wave_mask] - m1[self.wave_mask]) / (2.0 * drv)
         ob = obsflux_m0
         vm = obsvar_m0 
         

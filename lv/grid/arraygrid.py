@@ -6,7 +6,7 @@ from scipy import ndimage
 from scipy.interpolate import LinearNDInterpolator, RegularGridInterpolator, CubicSpline
 from scipy.interpolate import interp1d, interpn
 
-from lv.util.interp.rbf import Rbf
+# from lv.util.interp.rbf import Rbf
 from lv.base.pfsobject import PfsObject
 from .grid import Grid
 from .gridaxis import GridAxis

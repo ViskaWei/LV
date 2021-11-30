@@ -51,14 +51,23 @@ class Util():
             dfp = dfp[dfp[P]==Ps[ii]]
         return dfp.index
 
+    @staticmethod
+    def safe_log(x):
+        return np.log(np.where(x <= 1, 1, x))
+
+    @staticmethod
+    def normlog_flux(fluxs):
+        logflux = np.log(np.where(fluxs <= 1, 1, fluxs))
+        normlogflux = logflux - logflux.mean(1)[:,None]
+        return normlogflux
 
     @staticmethod
     def lognorm_flux(fluxs):
         fluxs = np.where(fluxs>0, fluxs, 1e-20)
         norm_flux = np.divide(fluxs, fluxs.mean(1)[:,None])
         # norm_flux = np.where(norm_flux <= 0, 0, norm_flux)
-        LNflux = np.log(norm_flux)
-        return LNflux
+        lognormflux = np.log(norm_flux)
+        return lognormflux
 
     # @staticmethod
     # def safe_log(x):

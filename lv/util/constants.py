@@ -25,6 +25,7 @@ class Constants():
     RRnms = list(dRR.values())
     Rnms = list(dRR.keys())
 
+    pshort = ["M", "T", "G", "C", "A"]
 
     uM = [-2.5 , -2.25, -2.  , -1.75, -1.5 , -1.25, -1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]
     uT = [ 3500.,  3750.,  4000.,  4250.,  4500.,  4750.,  5000.,  5250.,
@@ -37,7 +38,7 @@ class Constants():
             26000., 27000., 28000., 29000., 30000., 31000., 32000., 33000.,
             34000., 35000.]
     uG = [0. , 0.5, 1. , 1.5, 2. , 2.5, 3. , 3.5, 4. , 4.5, 5. ]
-    uC = [-0.5 , -0.25,  0.  ,  0.25,  0.5 ]
+    uC = [-0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ]
     uA = [-0.25,  0.  ,  0.25,  0.5 ]
 
 
@@ -48,6 +49,9 @@ class Constants():
         grid=f"/scratch/ceph/swei20/data/pfsspec/train/pfs_stellar_model/dataset/M31G/grid/bosz_R{pixelR}_RedM_m19"
         return bosz, rbf
 
+
+#path-----------------------------------------------------------------------------------------------------------------------
+    GRID_DIR = "/datascope/subaru/user/swei20/data/pfsspec/import/stellar/grid/"
 
 
 

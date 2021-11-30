@@ -1,4 +1,5 @@
 import numpy as np
+import scipy as sp
 from .util import Util
 
 class Obs(object):
@@ -15,7 +16,7 @@ class Obs(object):
     def getSky(self, wave, step):
         self.sky_in_res = Util.resampleSky(self.sky0, wave, step)
 
-    def makeFluxObs(self, flux_in_res, noise_level):
+    def add_obs_to_flux(self, flux_in_res, noise_level):
         var_in_res = Util.getVar(flux_in_res, self.sky_in_res)
         noise = Util.getNoise(var_in_res)
         obsflux_in_res = flux_in_res + noise_level * noise
@@ -39,6 +40,8 @@ class Obs(object):
 
     def estimate(self, fn, x0=None, bnds=None):
         if x0 is None: x0 = self.guessEstimation(fn)
+        # print(f"x0 = {x0}")
+        # print(f"bnds = {bnds}")
         out = sp.optimize.minimize(fn, x0, bounds = bnds, method="Nelder-Mead")
         if (out.success==True):
             X = out.x[0]

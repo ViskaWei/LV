@@ -5,6 +5,7 @@ import scipy as sp
 import pandas as pd
 import h5py
 import matplotlib.pyplot as plt
+
 from scipy.interpolate import RBFInterpolator
 
 from lv.util.constants import Constants as C
@@ -23,10 +24,24 @@ class BaseGrid(object):
         self.step=10
         self.Ws = [7100, 8850]
         self.Obs = Obs()
-        self.bnds = []
+        self.bnds = None
         self.test = {"pmt": np.array([-2.0, 8000, 2.5, 0.0, 0.25]), "noise_level": 0.1,
             "obsflux": None, "obsvar": None}
 
+    def init_bnds(self, R):
+        Rs = C.dRs[R]
+        diff = np.diff(Rs).T[0]
+        bnds=[]
+        for ii in range(5):
+            lb, ub = Rs[ii][0], Rs[ii][1]
+            bnds.append([lb, ub, diff[ii], C.dDX[ii], 0.5*(lb+ub)])
+        self.bnds = np.array(bnds)
+        self.scaler = self.get_scaler_fn(self.bnds[:,0], C.dDX)
+
+    def get_scaler_fn(self, mins, ds ):
+        def fn(x):
+            return np.divide((x-mins) ,ds)
+        return fn
 
     def load_grid(self, PATH=None):
         if PATH is None: PATH = os.path.join(self.GRID_DIR, f"bosz_{self.Res}_{self.RR}.h5")
@@ -55,9 +70,11 @@ class BaseGrid(object):
         self.rbf = RBFInterpolator(self.pdx0, flux, kernel='gaussian', epsilon=0.5)
 
     def prepare(self):
+        self.init_bnds(self.R)
         wave, flux = self.prepro(self.wave0, self.flux0)
         self.wave = wave
         self.flux = flux
+        self.getSky()
         self.build_rbf(flux)
         self.NLflux = self.Util.normlog_flux(flux)
         self.pca(self.NLflux)
@@ -119,7 +136,7 @@ class BaseGrid(object):
         maskL = (dfpara["G"] >= Ls[0]) & (dfpara["G"] <= Ls[1]) 
         mask = maskM & maskT & maskL
         self.dfpara = dfpara[mask]
-        self.para = np.array(self.dfpara.values, dtype=np.float16)
+        self.para = np.array(self.dfpara.values)
         return self.dfpara.index
 
     def save_dataset(self, wave, flux, para, SAVE_PATH=None):
@@ -135,14 +152,19 @@ class BaseGrid(object):
         self.Obs.getSky(self.wave0, self.step)
 
     
-    def getModel(self, pmt):
-        flux_idx = self.get_fdx_from_pmt(pmt)
-        flux = self.NLflux[flux_idx]
-        return np.exp(flux)
+    def getModel(self, pmt, normlog=True):
+        rbf_pdx = self.scaler(pmt)
+        flux = self.rbf([rbf_pdx])[0]
+        if normlog: flux = self.Util.normlog_flux_i(flux)
+        return flux
 
     #likelihood ---------------------------------------------------------------------------------
     def getLogLik_pmt(self, temp_pmt, obsflux, obsvar, sky_mask0=None, nu_only=True):
-        tempflux_in_res = self.getModel(temp_pmt)
+        tempflux_in_res = self.getModel(temp_pmt, normlog=self.normlog)
+        if self.normlog:
+            tempflux_in_res = np.exp(tempflux_in_res)
+            obsflux = np.exp(obsflux)
+
         return self.Obs.getLogLik(tempflux_in_res, obsflux, obsvar, nu_only=nu_only)   
 
     def get_LLH_fn(self, pdx, temp_pmt, obsflux, obsvar, sky_mask0=None):
@@ -152,13 +174,33 @@ class BaseGrid(object):
             return self.getLogLik_pmt(pmt, obsflux, obsvar, 
                                     sky_mask0=sky_mask0, nu_only=nu_only)
         return fn
+
+    def make_obs_from_pmt(self, pmt, noise_level, normlog=1):
+        flux = self.getModel(pmt, normlog=False)
+        obsflux, obsvar = self.Obs.add_obs_to_flux(flux, noise_level)
+        if normlog:  obsflux = self.Util.normlog_flux_i(obsflux)
+        return obsflux, obsvar
+
+
+
+    def getGridModel(self, pmt, normlog=True):
+        flux_idx = self.get_fdx_from_pmt(pmt)
+        flux = self.flux[flux_idx]
+        if normlog: flux = self.Util.normlog_flux_i(flux)
+        return flux
+
+
+
+
     
     def eval_pmt_on_axis(self, temp_pmt, x, obsflux, obsvar, axis="T", sky_mask0=None, plot=1):
         pdx = C.pshort.index(axis)
         name = self.Util.getname(*temp_pmt)
         print(f"Fitting with Template {name}")
         fn = self.get_LLH_fn(pdx, temp_pmt, obsflux, obsvar, sky_mask0=sky_mask0)
-        X = self.Obs.estimate(fn, x0=self.bnds[pdx][2], bnds=self.bnds[pdx][:2])
+        self.fn = fn
+        X = self.Obs.estimate(fn, x0=self.bnds[pdx][4], bnds=None)
+        print("estimate", X)
         if plot: 
             SN = self.Util.getSN(obsflux)
             sigz2 = 0
@@ -177,11 +219,11 @@ class BaseGrid(object):
 
         MLE_x = -1 * fn(x)
         MLE_X = -1 * fn(X)
-        plt.figure(figsize=(15,6))
+        plt.figure(figsize=(15,6), facecolor="w")
         plt.plot(x_large, y1,'g.-',markersize=7, label = f"llh")    
         plt.plot(x, MLE_x, 'ro', label=f"Truth {MLE_x:.2f}")
         plt.plot(X, MLE_X, 'ko', label=f"Estimate {MLE_X:.2f}")
-        xname = self.pnames[pdx]
+        xname = C.Pnms[pdx]
         ts = f'{xname} Truth={x:.2f}K, {xname} Estimate={X:.2f}K, S/N={SN:3.1f}'
         # ts = ts +  'sigz={:6.4f} km/s,  '.format(np.sqrt(sigz2))
         plt.title(ts)
@@ -197,3 +239,32 @@ class BaseGrid(object):
         ins.plot(X, MLE_X, 'ko')
         ins.grid()
         
+    def RBF_generator(self, n_sample, noise_level, pvals=None):
+        if pvals is None: pvals = self.get_rand_pmt(n_sample)
+        fluxs = np.zeros((n_sample, self.wave.shape[0]))
+        obsfluxs = np.zeros((n_sample, self.wave.shape[0]))
+        obsvars = np.zeros((n_sample, self.wave.shape[0]))
+        for ii, pval in enumerate(pvals):
+            flux = self.getModel(pval, normlog=False)
+            obsflux, obsvars[ii] = self.Obs.add_obs_to_flux(flux, noise_level)
+            obsfluxs[ii] = self.Util.normlog_flux_i(obsflux)
+            fluxs[ii] = flux
+        return pvals, fluxs, obsfluxs, obsvars
+
+    def gen_noise_from_flux(self, fluxs, noise_level):
+        n_sample = fluxs.shape[0]
+        obsfluxs = np.zeros_like(fluxs)
+        for ii, flux in enumerate(fluxs):
+            obsflux, _ = self.Obs.add_obs_to_flux(flux, noise_level)
+            obsfluxs[ii] = self.Util.normlog_flux_i(obsflux)
+        return obsfluxs
+
+    def get_rand_pmt(self, n_sample):
+        pvals = np.zeros((n_sample, 5))
+        for ii, bnd in enumerate(self.bnds):
+            lb, ub = bnd[0], bnd[1]
+            print(lb, ub)
+            pvals[:,ii] = np.random.uniform(lb, ub, n_sample) 
+        return pvals 
+
+    

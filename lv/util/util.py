@@ -62,6 +62,12 @@ class Util():
         return normlogflux
 
     @staticmethod
+    def normlog_flux_i(flux):
+        logflux = np.log(np.where(flux <= 1, 1, flux))
+        normlogflux = logflux - logflux.mean()
+        return normlogflux
+
+    @staticmethod
     def lognorm_flux(fluxs):
         fluxs = np.where(fluxs>0, fluxs, 1e-20)
         norm_flux = np.divide(fluxs, fluxs.mean(1)[:,None])

@@ -69,3 +69,23 @@ class DNN_ALL(BaseDNN):
             self.run_R0(R0, top=top, lr=lr, dp=dp, ep=ep, verbose=verbose)
         # self.get_contamination_mat(plot=1)
 
+
+    def prepare_testset(self, Ws=None, Rs=None, N_test=None, grid=0, isNoisy=1):
+        if Rs is None: Rs = self.Rnms
+        for R0 in Rs:
+            self.f_tests[R0], self.p_tests[R0], self.s_tests[R0] = self.process_data_R(R0, Ws=Ws, N=N_test, grid=grid, isNoisy=isNoisy)
+        for R0 in Rs:
+            pcFlux = {}
+            for R1 in Rs:
+                pcFlux[R1] = self.transform_R(self.f_tests[R1], R0) # project to R0 PC
+            self.x_tests[R0] = pcFlux
+
+
+    def prepare_trainset(self, Ws=None, Rs=None, N_train=None, grid=0, isNoisy=1):
+        if Rs is None: Rs = self.Rnms
+        for R0 in Rs:
+            self.f_trains[R0], self.p_trains[R0], self.s_trains[R0] = self.process_data_R(R0, Ws=Ws, N=N_train, grid=grid, isNoisy=isNoisy)
+            self.y_trains[R0] = self.scale(self.p_trains[R0], R0)
+            self.x_trains[R0] = self.transform_R(self.f_trains[R0],R0) # project to R0 PC
+                
+                

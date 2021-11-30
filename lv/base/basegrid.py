@@ -9,6 +9,7 @@ from scipy.interpolate import RBFInterpolator
 
 from lv.util.constants import Constants as C
 from lv.util.util import Util
+from lv.util.obs import Obs
 
 class BaseGrid(object):
     def __init__(self, R):
@@ -21,6 +22,11 @@ class BaseGrid(object):
         self.Util = Util()
         self.step=10
         self.Ws = [7100, 8850]
+        self.Obs = Obs()
+        self.bnds = []
+        self.test = {"pmt": np.array([-2.0, 8000, 2.5, 0.0, 0.25]), "noise_level": 0.1,
+            "obsflux": None, "obsvar": None}
+
 
     def load_grid(self, PATH=None):
         if PATH is None: PATH = os.path.join(self.GRID_DIR, f"bosz_{self.Res}_{self.RR}.h5")
@@ -37,13 +43,12 @@ class BaseGrid(object):
         wave, flux = self.Util.resample(wave, flux, self.step)
         return wave, flux
 
-    def get_pdx_idx(self, pdx_i):
+    def get_idx_from_pdx(self, pdx_i):
         mask = True
         for ii, p in enumerate(pdx_i):
             mask = mask & (self.pdx0[:,ii] == p)
         idx = np.where(mask)[0][0]
         return idx
-
 
     def build_rbf(self, flux):
         print(f"Building RBF on flux shape {flux.shape}")
@@ -54,11 +59,30 @@ class BaseGrid(object):
         self.wave = wave
         self.flux = flux
         self.build_rbf(flux)
-        self.pca(flux)
+        self.NLflux = self.Util.normlog_flux(flux)
+        self.pca(self.NLflux)
+
+    def get_idx_from_pdx(self, pdx_i):
+        mask = True
+        for ii, p in enumerate(pdx_i):
+            mask = mask & (self.pdx0[:,ii] == p)
+        idx = np.where(mask)[0][0]
+        return idx
+
+
+    def get_fdx_from_pmt(self, pmt):
+        mask = True
+        for ii, p in enumerate(pmt):
+            mask = mask & (self.para[:,ii] == p)
+        try:
+            idx = np.where(mask)[0][0]
+            return idx
+        except:
+            raise("No such pmt")
+
 
     def pca(self, flux, top=10):
-        normlog_flux = self.Util.normlog_flux(flux)
-        _,s,v = np.linalg.svd(normlog_flux, full_matrices=False)
+        _,s,v = np.linalg.svd(flux, full_matrices=False)
         self.eigv0 = v
         if top is not None: 
             v = v[:top]
@@ -104,3 +128,72 @@ class BaseGrid(object):
             f.create_dataset(f"flux", data=flux, shape=flux.shape)
             f.create_dataset(f"para", data=para, shape=para.shape)
             f.create_dataset(f"wave", data=wave, shape=wave.shape)  
+
+
+    def getSky(self):
+        self.Obs.initSky()
+        self.Obs.getSky(self.wave0, self.step)
+
+    
+    def getModel(self, pmt):
+        flux_idx = self.get_fdx_from_pmt(pmt)
+        flux = self.NLflux[flux_idx]
+        return np.exp(flux)
+
+    #likelihood ---------------------------------------------------------------------------------
+    def getLogLik_pmt(self, temp_pmt, obsflux, obsvar, sky_mask0=None, nu_only=True):
+        tempflux_in_res = self.getModel(temp_pmt)
+        return self.Obs.getLogLik(tempflux_in_res, obsflux, obsvar, nu_only=nu_only)   
+
+    def get_LLH_fn(self, pdx, temp_pmt, obsflux, obsvar, sky_mask0=None):
+        pmt = np.copy(temp_pmt)
+        def fn(x, nu_only=True):
+            pmt[pdx] = x
+            return self.getLogLik_pmt(pmt, obsflux, obsvar, 
+                                    sky_mask0=sky_mask0, nu_only=nu_only)
+        return fn
+    
+    def eval_pmt_on_axis(self, temp_pmt, x, obsflux, obsvar, axis="T", sky_mask0=None, plot=1):
+        pdx = C.pshort.index(axis)
+        name = self.Util.getname(*temp_pmt)
+        print(f"Fitting with Template {name}")
+        fn = self.get_LLH_fn(pdx, temp_pmt, obsflux, obsvar, sky_mask0=sky_mask0)
+        X = self.Obs.estimate(fn, x0=self.bnds[pdx][2], bnds=self.bnds[pdx][:2])
+        if plot: 
+            SN = self.Util.getSN(obsflux)
+            sigz2 = 0
+            self.plot_pmt_on_axis(fn, x, X, SN, sigz2, pdx)
+        return X
+
+    def plot_pmt_on_axis(self, fn, x, X, SN, sigz2, pdx):
+        x_large = np.linspace(self.bnds[pdx][0], self.bnds[pdx][1], 101)
+        x_small = np.linspace(x - self.bnds[pdx][3], x + self.bnds[pdx][3], 25)
+        y1 = []
+        y2 = []
+        for xi in x_large:
+            y1.append(-1 * fn(xi))
+        for xj in x_small:
+            y2.append(-1 * fn(xj))
+
+        MLE_x = -1 * fn(x)
+        MLE_X = -1 * fn(X)
+        plt.figure(figsize=(15,6))
+        plt.plot(x_large, y1,'g.-',markersize=7, label = f"llh")    
+        plt.plot(x, MLE_x, 'ro', label=f"Truth {MLE_x:.2f}")
+        plt.plot(X, MLE_X, 'ko', label=f"Estimate {MLE_X:.2f}")
+        xname = self.pnames[pdx]
+        ts = f'{xname} Truth={x:.2f}K, {xname} Estimate={X:.2f}K, S/N={SN:3.1f}'
+        # ts = ts +  'sigz={:6.4f} km/s,  '.format(np.sqrt(sigz2))
+        plt.title(ts)
+        plt.xlabel(f"{xname}")
+        plt.ylabel("Log likelihood")
+        plt.grid()
+        plt.ylim((min(y1),min(y1)+(max(y1)-min(y1))*1.5))
+        plt.legend()
+        ax = plt.gca()
+        ins = ax.inset_axes([0.1,0.45,0.4,0.5])
+        ins.plot(x_small,y2,'g.-',markersize=7)
+        ins.plot(x, MLE_x, 'ro')
+        ins.plot(X, MLE_X, 'ko')
+        ins.grid()
+        

@@ -26,7 +26,8 @@ from .baseDNN import BaseDNN
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import tensorflow as tf
-tf.config.list_physical_devices('GPU') 
+print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+# tf.config.list_physical_devices('GPU') 
 import warnings
 warnings.filterwarnings("ignore")
 import logging 
@@ -34,10 +35,13 @@ logging.getLogger('tensorflow').setLevel(logging.FATAL)
 
 class DNN_LLH(BaseDNN):
     def __init__(self):
+        super().__init__()
         self.dataDir = os.path.join(c.PFSSPEC_DIR, "train/pfs_stellar_model/dataset")
         self.x_trains = {}
         self.y_trains = {}
         self.p_trains= {}
+        self.gpu=3
+        self.pdx=[1,2]
 
     def prepare_DNN(self, input_dim=None, lr=0.01, dp=0.0):
         dnn = DNN()
@@ -45,9 +49,16 @@ class DNN_LLH(BaseDNN):
         dnn.set_model_shape(input_dim, len(self.pdx))
         dnn.set_model_param(lr=lr, dp=dp, loss='mse', opt='adam', name='')
         dnn.build_model()
+        self.dnn = dnn
         return dnn
 
-    def test(self, R0, R1, dnn=None):
+    def test(self, train_x, train_y, dnn, ep, verbose=0):
+        self.setup_scalers()
+        self.init_gpu(gpu=self.gpu)
+        dnn.fit(train_x, train_y, ep=ep, verbose=verbose)
+        return dnn
+
+
 
         
     def run_R0(self, R0, top = None, lr=0.01, dp=0.01, ep=1, verbose=0):
@@ -72,14 +83,17 @@ class DNN_LLH(BaseDNN):
         for R1 in self.Rnms:
             self.prepare_testset_R0_R1(R0, R1, N_test)
 
+    
 
-    def prepare(self, Ws=None, Rs=None, N_train=None, grid=0, isNoisy=1):
-        if Ws is None: Ws = self.arms
-        self.load_PCs(Ws, Rs)
-        self.setup_scalers()
-        self.prepare_trainset(Ws, Rs, N_train, grid, isNoisy)
-        self.prepare_testset(Ws, Rs, self.N_test, grid, isNoisy)
-        self.init_gpu(gpu=self.gpu)
+
+
+    # def prepare(self, Ws=None, Rs=None, N_train=None, grid=0, isNoisy=1):
+    #     if Ws is None: Ws = self.arms
+    #     self.load_PCs(Ws, Rs)
+    #     self.setup_scalers()
+    #     self.prepare_trainset(Ws, Rs, N_train, grid, isNoisy)
+    #     self.prepare_testset(Ws, Rs, self.N_test, grid, isNoisy)
+    #     self.init_gpu(gpu=self.gpu)
 
 
     def init_gpu(self, gpu=0):

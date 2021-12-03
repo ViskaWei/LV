@@ -8,23 +8,33 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from scipy.interpolate import RBFInterpolator
-
+from .basegrid import BaseGrid
 from lv.util.constants import Constants as C
 from lv.util.util import Util
 from lv.util.obs import Obs
 
-class BaseGrid(object):
-    def __init__(self, ):
+class BaseBox(BaseGrid):
+    def __init__(self):
+        super().__init__()
         self.GRID_DIR = C.GRID_DIR
         self.wave = None
         self.flux = None
         self.Res = 5000
-        self.step = 10
-        self.Ws = [7100, 8850]
-
+        # self.R = None
+        # self.RR = C.dRR[R]
         self.Util = Util()
+        self.step=10
+        self.Ws = [7100, 8850]
         self.Obs = Obs()
-        
+        self.bnds = None
+        self.test = {"pmt": np.array([-2.0, 8000, 2.5, 0.0, 0.25]), "noise_level": 0.1,
+            "obsflux": None, "obsvar": None}
+
+    # def get_boxed_flux(self, R, Res, save=False):
+    #     C.R[]
+    #     idx = self.get_fdx_from_pmt(pmt)
+    #     flux = self.flux0[idx]
+    #     return flux
 
     def init_bnds(self, R):
         Rs = C.dRs[R]
@@ -35,7 +45,7 @@ class BaseGrid(object):
             bnds.append([lb, ub, diff[ii], C.dDX[ii], 0.5*(lb+ub)])
         self.bnds = np.array(bnds)
         self.scaler = self.get_scaler_fn(self.bnds[:,0], C.dDX)
-
+        
         self.test = {"pmt": self.bnds[:,], "noise_level": 1.0,
             "obsflux": None, "obsvar": None}
 
@@ -44,8 +54,8 @@ class BaseGrid(object):
             return np.divide((x-mins) ,ds)
         return fn
 
-    def load_grid(self, RR, PATH=None):
-        if PATH is None: PATH = os.path.join(self.GRID_DIR, f"bosz_{self.Res}_{RR}.h5")
+    def load_grid(self, PATH=None):
+        if PATH is None: PATH = os.path.join(self.GRID_DIR, f"bosz_{self.Res}_{self.RR}.h5")
         with h5py.File(PATH, "r") as f:
             self.wave0 = f["wave"][()]
             self.flux0 = f["flux"][()]

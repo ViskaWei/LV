@@ -215,7 +215,8 @@ class BaseDNN():
         if Rs is None: Rs = self.Rnms
         if top is None: top = self.top
         Ws = self.dWs[W]
-        PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}{name}.h5"
+        # /datascope/subaru/user/swei20/data/pfsspec/train/pfs_stellar_model/dataset/LLH/bosz_5000_PC.h5
+        # PC_PATH = f"/scratch/ceph/swei20/data/dnn/PC/logPC/{Ws[3]}_R{Ws[2]}{name}.h5"
         dPC = {}
         with h5py.File(PC_PATH, 'r') as f:
             for R in Rs:
@@ -223,6 +224,8 @@ class BaseDNN():
                 dPC[R] = PC[:top]
         nPixel = PC.shape[1]        
         return dPC, nPixel
+
+    
 
     def dataloader_W_R(self, W="RML", R=None, N=None, mag=None, grid=0):
         DATA_PATH = self.get_datapath_from_W_R(W, R, N)
@@ -357,7 +360,7 @@ class BaseDNN():
         if dnn is None: dnn = self.dnns[R]
         y_preds = dnn.model.predict(data)
         return y_preds
-  
+
 
 
 
@@ -734,7 +737,7 @@ class BaseDNN():
         ctm = mat[mask]
         for ii in range(mask.sum()):            
             ax.annotate(f"{ctm[ii]}", xy=(xvm[ii], yvm[ii]), xycoords="data", fontsize=15, ha='center')
-        
+        ax.set_xticklabels(RRs, minor=True)`    q   32322`
         xlbl = [RRs[0], *RRs]
         ax.set_xticklabels(xlbl)
         ylbl = [RRs[0], *RRs[::-1]]
@@ -761,19 +764,19 @@ class BaseDNN():
         dnn.build_model()
         return dnn
 
-    def predict(self, data, R, dnn=None):
+    def _predict(self, data, R, dnn=None):
         if dnn is None: dnn = self.dnns[R]
         y_preds = dnn.model.predict(data)
         return self.rescale(y_preds, R)
 
     def trans_predict_W(self, data, W, R0, dnn=None):
         pc_data = self.transform_W_R(data, W, R0)
-        p_pred = self.predict(pc_data, R0, dnn=None)
+        p_pred = self._predict(pc_data, R0, dnn=None)
         return p_pred
     
     def trans_predict(self, data, R0, dnn=None):
         pc_data = self.transform_W_R(data, R0)
-        p_pred = self.predict(pc_data, R0, dnn=None)
+        p_pred = self._predict(pc_data, R0, dnn=None)
         return p_pred
     
 

@@ -23,6 +23,19 @@ class Obs(object):
         obsvar_in_res = var_in_res * noise_level**2
         return obsflux_in_res, obsvar_in_res
 
+
+    def get_obsflux_N(self, flux_in_res, var_in_res, noise_level, N):
+        fluxs = np.tile(flux_in_res, (N, 1)) 
+        noise = Util.get_noise_N(var_in_res, N)
+        obsfluxs = fluxs + noise_level * noise
+        return obsfluxs
+
+    def add_obs_to_flux_N(self, flux_in_res, noise_level, N):
+        var_in_res = Util.getVar(flux_in_res, self.sky_in_res)
+        obsvar_in_res = var_in_res * noise_level**2
+        obsflux_in_res = self.get_obsflux_N(flux_in_res, var_in_res, noise_level, N)
+        return obsflux_in_res, obsvar_in_res
+
     # likelihood---------------------------------------------------------------------------------
     @staticmethod
     def getLogLik(model, obsflux, var, nu_only=True):

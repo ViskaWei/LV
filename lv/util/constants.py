@@ -53,8 +53,12 @@ class Constants():
 
 
 #path-----------------------------------------------------------------------------------------------------------------------
-    GRID_DIR = "/datascope/subaru/user/swei20/data/pfsspec/import/stellar/grid/"
+    LASZLO_GRID_DIR    = "/datascope/subaru/data/pfsspec/import/stellar/grid/bosz/"
+    RBF_DIR     = "/datascope/subaru/user/swei20/data/pfsspec/import/stellar/rbf/"
+    TRAIN_DIR   = "/datascope/subaru/user/swei20/data/pfsspec/train/pfs_stellar_model/dataset/"
     PFSSPEC_DIR = "/datascope/subaru/user/swei20/data/pfsspec/"
+    LASZLO_PFSSPEC_DIR = "/datascope/subaru/data/pfsspec/"
+
     
 
 

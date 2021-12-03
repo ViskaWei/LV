@@ -8,9 +8,11 @@ import h5py
 from tqdm import tqdm
 from scipy.stats import chi2 as chi2
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle, Ellipse, Patch
 import matplotlib.transforms as transforms
-from matplotlib.patches import Ellipse
 
+from matplotlib.lines import Line2D
+from matplotlib import collections  as mc
 
 class Util():
     def __init__(self):
@@ -62,6 +64,18 @@ class Util():
         return normlogflux
 
     @staticmethod
+    def norm_flux(fluxs, log=1):
+        if len(fluxs.shape) == 1: 
+            fluxs = fluxs[:,None]
+        if log:
+            normflux = fluxs - fluxs.mean(1)[:,None]
+        else:
+            normflux = fluxs / fluxs.mean(1)[:,None]
+        if len(fluxs.shape) == 1: 
+            normflux = normflux[0]
+        return normflux
+
+    @staticmethod
     def normlog_flux_i(flux):
         logflux = np.log(np.where(flux <= 1, 1, flux))
         normlogflux = logflux - logflux.mean()
@@ -100,6 +114,7 @@ class Util():
         dfpara = dfpara[mask]
         para = np.array(dfpara.values, dtype=np.float16)
         return dfpara.index, para
+
 
 # sample ------------------------------------------------------------------------------
 
@@ -229,9 +244,100 @@ class Util():
         ax.legend(by_label.values(), by_label.keys())
 
 
+    def flow_fn(self,paras, center, legend=0):
+        fpara=self.scatter_fn(paras, c="r",s=10)
+        fmean=self.scatter_fn(center, c="g",s=10)
+        ftraj=self.traj_fn(paras, center, c="r",lw=2)
+        return [fpara,fmean, ftraj]
+
+    def flow_fn_i(self, pred, center, snr=None, legend=0):
+        mu, sigma = pred.mean(0), pred.std(0)
+        center = np.array([center])
+        MU = np.array([mu])
+        lgd =f"SNR={snr}" if legend else None
+        
+        fpred=self.scatter_fn(pred, c="gray",s=10, lgd=lgd)
+        fmean=self.scatter_fn(MU,  c="r",s=10)
+        ftarget=self.scatter_fn(center,  c="g",s=10)
+        ftraj=self.traj_fn(MU, center, c="r",lw=2)
+        add_ellipse = self.get_ellipse_fn(pred,c='b', legend=legend)
 
 
+        return [fpred,fmean, ftarget,ftraj, add_ellipse]
 
+
+    @staticmethod
+    def traj_fn(strts, ends, c=None, lw=2):
+        nTest=strts.shape[0]
+        def fn(i, j , ax, handles=[]):
+            flowList=[]
+            for ii in range(nTest):
+                strt=strts[ii]
+                end= ends[ii]
+                flowList.append([(strt[i],strt[j]), (end[i],end[j])])
+            lc = mc.LineCollection(flowList, colors=c, linewidths=lw)
+            ax.add_collection(lc)
+            return handles
+        return fn
+
+
+    @staticmethod
+    def scatter_fn(data, c=None, s=1, lgd=None):
+        def fn(i, j, ax, handles=[]):
+            ax.scatter(data[:,i], data[:,j],s=s, c=c)
+            if lgd is not None: 
+                handles.append(Line2D([0], [0], marker='o',color='w', label=lgd, markerfacecolor=c, markersize=10))
+            return handles
+        return fn
+
+    @staticmethod
+    def get_ellipse_params(pred, npdx=None):
+        if npdx is None: npdx = pred.shape[1]
+        x0s,y0s,s05s,degs = [],[],[],[]
+        for ii in range(npdx):
+            jj = 0 if ii ==npdx-1 else ii + 1
+            x0, y0, s05, degree = Util.get_ellipse_param(pred[:,ii], pred[:,jj])
+            x0s.append(x0)
+            y0s.append(y0)
+            s05s.append(s05)
+            degs.append(degree)
+        return x0s,y0s,s05s,degs
+
+    @staticmethod
+    def get_ellipse_param(x, y):
+        x0,y0=x.mean(0),y.mean(0)
+        _, s, v = np.linalg.svd(np.cov(x,y))
+        s05 = s**0.5
+        degree = Util.get_angle_from_v(v)
+        return x0, y0, s05, degree
+
+    @staticmethod
+    def get_ellipse_fn(data, c=None, ratio=0.95, legend=1):
+        x0s,y0s,s05s,degrees = Util.get_ellipse_params(data)
+        chi2_val = chi2.ppf(ratio, 2)
+        co = 2 * chi2_val**0.5
+        if c is None: c = "r"
+        def add_ellipse(i, j, ax, handles):
+            x0, y0, s05, degree = x0s[i], y0s[i], s05s[i], degrees[i]
+            e = Ellipse(xy=(0,0),width=co*s05[0], height=co*s05[1], facecolor="none",edgecolor=c,)
+            transf = transforms.Affine2D().rotate_deg(degree).translate(x0,y0) + ax.transData        
+            e.set_transform(transf)
+            ax.add_patch(e)
+            if legend:
+                handles.append(Ellipse(xy=(0,0),width=2, height=1, facecolor="none",edgecolor=c,label=f"Chi2_{100*ratio:.0f}%"))
+            return handles
+        return add_ellipse
+
+    @staticmethod
+    def box_fn(pRange, pMin, pMax,  n_box=None, c="k"):
+        def fn(i, j , ax, handles=[]):
+            if n_box is not None:
+                ax.set_xlim(pMin[i]-n_box*pRange[i], pMax[i]+n_box*pRange[i])
+                ax.set_ylim(pMin[j]-n_box*pRange[j], pMax[j]+n_box*pRange[j])
+            ax.add_patch(Rectangle((pMin[i],pMin[j]),(pRange[i]),(pRange[j]),edgecolor=c,lw=2, facecolor="none"))
+            handles.append(Patch(facecolor='none', edgecolor=c, label=f"Box")) 
+            return handles
+        return fn
 
     @staticmethod
     def get_ellipse_fn_2d(x,y,df):
@@ -363,7 +469,7 @@ class Util():
         snrList = [11,22,33,55,110]
         
         # ssm   = Util.getModel(ss,0)
-        ssm   = Util.resampleFlux_i(ss, step)
+        ssm   = Util.resampleFlux_i(ss, step                        )       
         varm  = Util.getVar(ssm,skym)
         noise = Util.getNoise(varm)  
 
@@ -394,6 +500,13 @@ class Util():
         return varm
 
     @staticmethod
+    def get_noise_N(varm, N):
+        out = np.zeros((N,varm.shape[0]))
+        for i in range(N):
+            out[i] = np.random.normal(0, np.sqrt(varm), len(varm))
+        return out
+
+    @staticmethod
     def getNoise(varm):
         #--------------------------------------------------------
         # given the noise variance, create a noise realization
@@ -403,7 +516,7 @@ class Util():
         # Output
         #  noise: nosie realization in m-pixels
         #--------------------------------------------------------
-        np.random.seed(42)
+        # np.random.seed(42)
         noise = np.random.normal(0, np.sqrt(varm), len(varm))
         return noise
 

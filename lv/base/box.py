@@ -14,21 +14,20 @@ from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d as mp3d
 from scipy import stats
 from lv.pca.basePCA import BasePCA
-from lv.util.constants import Constants
+from lv.util.constants import Constants as C
 from lv.util.util import Util
 
 class Box():
     def __init__(self, volta=0):
         self.para = None
         self.slurm = ""
-        self.c = Constants()
+        self.c = C()
         self.Util = Util()
         self.boszR=5000
         self.pixelR={"RedM": 5000, "Blue":2300, "NIR": 4300}
         self.filter={'RedM':'i', 'Blue':'g', 'NIR':'y'}
         self.mag=19
         self.DATADIR = "/datascope/subaru/data/pfsspec/"
-        # self.DATADIR = "/scratch/ceph/swei20/data/pfsspec/"
         self.PARADIR = "../data/"
 
     def get_slurm(self, volta=0, srun=0, sbatch=0, mem=256):
@@ -45,9 +44,6 @@ class Box():
         self.slurm = slurm + " -t 72:0:0"
 
     def init_para(self):
-        # NORM_PATH = "/scratch/ceph/szalay/swei20/AE/norm_flux.h5"
-        # with h5py.File(NORM_PATH, 'r') as f:
-        #     para = f['para'][()]
         para = np.genfromtxt(self.PARADIR +'para.csv', delimiter=',')
 
         MH    = para[:,5]
@@ -83,8 +79,8 @@ class Box():
         print(R, sep="/n/n")
         pp = self.c.dRs[R][:3]
         base = f"./scripts/build_rbf.sh {self.slurm} grid bosz --config ./configs/import/stellar/bosz/rbf/"
-        ins = f" --in {self.DATADIR}import/stellar/grid/bosz_{boszR}"
-        out =  f" --out {self.DATADIR}import/stellar/rbf/bosz_{boszR}_{self.c.dRR[R]}/"
+        ins = f" --in {C.LASZLO_GRID_DIR}bosz_{boszR}"
+        out =  f" --out {C.RBF_DIR}bosz_{boszR}_{self.c.dRR[R]}/"
         param = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} "
         cmd = base + ins+ out + param
         if self.boszR is None: self.boszR=boszR
@@ -106,13 +102,13 @@ class Box():
         base = f"./scripts/prepare.sh {self.slurm} model bosz pfs --config ./configs/infer/pfs/bosz/nowave/prepare/train.json"
         arm  = f"  ./configs/infer/pfs/bosz/nowave/inst_pfs_{w}.json"
         size = f" --chunk-size 1 "
-        inD  = f" --in /scratch/ceph/dobos/data/pfsspec/import/stellar/grid/bosz_50000"
+        inD  = f" --in {C.LASZLO_PFSSPEC_DIR}import/stellar/grid/bosz_50000"
         
         if self.grid_name is None: self.grid_name = f"R{pixelR}_{W}_m{mag}"
         outD = f" --out {self.DATADIR}train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{self.grid_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
         norm = f" --norm none"
-        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_{self.filter[W]}.dat --mag {mag} "
+        mag  = f" --mag-filter {C.LASZLO_PFSSPEC_DIR}subaru/hsc/hsc_{self.filter[W]}.dat --mag {mag} "
         grid = f" --sample-mode grid"
 
         cmd = base + arm + size + inD + outD + para + norm + mag + grid
@@ -141,7 +137,7 @@ class Box():
         sample_name = f"R{pixelR}_{W}_{nn}k_m{self.mag}"
         outD = f" --out {self.DATADIR}train/pfs_stellar_model/dataset/{self.c.dRR[R]}/laszlo/{sample_name}"
         para = f" --Fe_H {pp[0][0]} {pp[0][1]} --T_eff {pp[1][0]} {pp[1][1]} --log_g  {pp[2][0]} {pp[2][1]} --C_M {pp[3][0]} {pp[3][1]} --O_M {pp[4][0]} {pp[4][1]}"
-        mag  = f" --mag-filter /scratch/ceph/dobos/data/pfsspec/subaru/hsc/hsc_{self.filter[W]}.dat --mag {self.mag-dmag} {self.mag+dmag}"
+        mag  = f" --mag-filter {C.LASZLO_PFSSPEC_DIR}subaru/hsc/hsc_{self.filter[W]}.dat --mag {self.mag-dmag} {self.mag+dmag}"
         norm = f" --norm none"
         cmd = base + arm + size + inD + outD + para + mag + norm
         if Ps_arm is not None:

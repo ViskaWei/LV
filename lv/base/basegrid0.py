@@ -8,16 +8,19 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from scipy.interpolate import RBFInterpolator
-from .basegrid import BaseGrid
 from lv.util.constants import Constants as C
 from lv.util.util import Util
 from lv.util.obs import Obs
 
-class BaseBox(BaseGrid):
-    def __init__(self):
+class BaseGrid(object):
+    def __init__(self, R):
         super().__init__()
-        self.GRID_DIR = None
-        self.Res = None
+        self.GRID_DIR = C.GRID_DIR
+        self.wave = None
+        self.flux = None
+        self.Res = 5000
+        self.R = R
+        self.RR = C.dRR[R]
         self.Util = Util()
         self.step=10
         self.Ws = [7100, 8850]
@@ -25,16 +28,6 @@ class BaseBox(BaseGrid):
         self.bnds = None
         self.test = {"pmt": np.array([-2.0, 8000, 2.5, 0.0, 0.25]), "noise_level": 0.1,
             "obsflux": None, "obsvar": None}
-
-    def init_Res(self, Res):
-        self.Res = Res
-        self.GRID_PATH = os.path.join(C.GRID_DIR, f"bosz_{Res}_RedM.h5")
-
-    def get_box_data(self, R, Res, save=False):
-        
-        idx = self.get_fdx_from_pmt(pmt)
-        flux = self.flux0[idx]
-        return flux
 
 
     def init_bnds(self, R):
